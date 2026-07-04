@@ -17,6 +17,7 @@ from models import (
     DocResponse,
     IngestRequest,
     IngestResponse,
+    Invariant,
     MetricsResponse,
     ParagraphOut,
     StatusResponse,
@@ -66,7 +67,7 @@ def doc(
     return DocResponse(
         title=title,
         paragraphs=[ParagraphOut(**p) for p in paragraphs],
-        invariants=[],  # Tier 2
+        invariants=[Invariant(**inv) for inv in cache.get_invariants(doc_id)],
     )
 
 
@@ -110,6 +111,6 @@ def metrics(doc_id: str) -> MetricsResponse:
         tokens_per_s_avg=avg_tps,
         vram_gb=VRAM_GB,
         n_rewrites=cache.count_rewrites(doc_id),
-        n_uncertain=0,  # Tier 2 (audit)
-        n_seal_violations_caught=0,  # Tier 2 (invariants)
+        n_uncertain=cache.count_by_audit(doc_id, "uncertain"),
+        n_seal_violations_caught=cache.count_by_audit(doc_id, "failed"),
     )

@@ -1,19 +1,31 @@
-"""Pipeline (SPEC §5): chunk → (invariants) → rewrite → (audit) → assemble.
+"""Pipeline (SPEC §5): chunk → invariants → rewrite → audit → assemble.
 
-Tier 1 implements chunk → rewrite → assemble. Invariants and audit are stubbed
-(§5 steps 2 & 4 are Tier 2). Generation is pre-computed once at ingest into the
-SQLite cache and streamed in paragraph-by-paragraph (§3.3), so the dial reads
-back instantly.
+Generation is pre-computed once at ingest into the SQLite cache and streamed in
+paragraph-by-paragraph (§3.3), so the dial reads back instantly. Tier 2 adds:
+sealed invariants (§5 step 2), token-preserving rewrite with a corrective retry
+(§5 step 3), and a second-model fidelity audit (§5 step 4).
 """
 from __future__ import annotations
 
+import json
 import re
 import threading
 import uuid
 
 import cache
+import invariants
+import llm
 import prompts
-from config import WRITER_MAX_TOKENS, WRITER_MODEL, WRITER_TEMPERATURE
+from config import (
+    AUDITOR_MODEL,
+    AUDITOR_TEMPERATURE,
+    USE_AUDIT,
+    USE_INVARIANT_LLM,
+    USE_INVARIANTS,
+    WRITER_MAX_TOKENS,
+    WRITER_MODEL,
+    WRITER_TEMPERATURE,
+)
 from llm import LLMError, generate
 
 # Chunking parameters (§5 step 1).
@@ -112,32 +124,133 @@ def chunk_document(text: str) -> list[tuple[str, bool]]:
     return result
 
 
-def _rewrite_paragraph(text: str, level: str) -> str:
-    """One writer call. On LLM failure, degrade to original text (never block)."""
-    system = prompts.WRITER_SYSTEM
-    user = prompts.writer_user(level, text, language=_detect_language(text))
-    out = generate(
+def _write(tokenized: str, level: str, language: str, corrective: str = "") -> str:
+    """One writer call on a tokenized paragraph. Raises LLMError on failure."""
+    user = prompts.writer_user(level, tokenized, language=language) + corrective
+    return generate(
         WRITER_MODEL,
-        system,
+        prompts.WRITER_SYSTEM,
         user,
         temperature=WRITER_TEMPERATURE,
         max_tokens=WRITER_MAX_TOKENS,
-    )
-    return out.strip()
+    ).strip()
+
+
+def _rewrite_preserving(
+    tokenized: str, level: str, expected: dict[str, int], language: str
+) -> tuple[str, bool]:
+    """Rewrite, then check sealed tokens (§5 step 3). One corrective retry — the
+    "auto-regenerate once" of §1.2. Returns (rewrite_with_tokens, tokens_ok)."""
+    out = _write(tokenized, level, language)
+    bad = invariants.verify(out, expected)
+    if not bad:
+        return out, True
+    corrective = prompts.writer_correction([f"⟦INV:{i}⟧" for i in bad])
+    out = _write(tokenized, level, language, corrective)
+    return out, not invariants.verify(out, expected)
+
+
+def _resolve_auditor() -> tuple[str, bool]:
+    """Pick the auditor model. Falls back to Gemma self-audit if the Nemotron
+    auditor isn't pulled (§3.1). Returns (model, is_second_family)."""
+    if not USE_AUDIT:
+        return WRITER_MODEL, False
+    models = llm.available_models()
+    base = AUDITOR_MODEL.split(":")[0]
+    for m in models:
+        if m == AUDITOR_MODEL or m.split(":")[0] == base:
+            return m, True
+    return WRITER_MODEL, False
+
+
+def _audit(original: str, rewrite: str, model: str) -> tuple[str, str | None]:
+    """Second-model fidelity check (§5 step 4), temperature 0. Returns
+    (verdict, note). If the auditor can't answer, abstain → uncertain (honest)."""
+    try:
+        raw = generate(
+            model,
+            prompts.AUDITOR_SYSTEM,
+            prompts.auditor_user(original, rewrite),
+            json_schema={"type": "object"},
+            temperature=AUDITOR_TEMPERATURE,
+            max_tokens=256,
+        )
+        data = json.loads(raw)
+        verdict = str(data.get("verdict", "")).strip().lower()
+        reason = str(data.get("reason", "")).strip() or None
+        # The spec verdict domain is faithful|uncertain, but auditors phrase doubt
+        # many ways ("unfaithful", "false", "no"). Only an explicit "faithful"
+        # clears the passage; everything else abstains and surfaces the reason.
+        if verdict == "faithful":
+            return "faithful", None
+        return "uncertain", reason or "The auditor flagged a possible shift in meaning."
+    except (LLMError, json.JSONDecodeError, ValueError):
+        return "uncertain", "Auditor unavailable; this passage was not verified."
 
 
 def _run_generation(doc_id: str, paragraphs: list[tuple[int, str, bool]]) -> None:
-    """Background worker: fill every rewrite level for every non-heading paragraph."""
+    """Background worker (§5): extract & seal invariants, then rewrite + audit
+    every level for every non-heading paragraph, streaming results into cache."""
+    auditor_model, _ = _resolve_auditor()
+
+    # --- §5 step 2: invariant extraction with global id assignment -----------
+    registry: dict[str, dict] = {}  # lowercased text → {id, text, kind}
+    per_par: dict[int, list[dict]] = {}
+    if USE_INVARIANTS:
+        ext_model = WRITER_MODEL if USE_INVARIANT_LLM else None
+        for par_id, text, is_heading in paragraphs:
+            if is_heading:
+                continue
+            resolved: list[dict] = []
+            for f in invariants.extract(text, model=ext_model):
+                key = f["text"].lower()
+                if key not in registry:
+                    registry[key] = {"id": f"inv{len(registry)}", "text": f["text"], "kind": f["kind"]}
+                resolved.append(registry[key])
+            per_par[par_id] = resolved
+        cache.save_invariants(doc_id, list(registry.values()))
+        # Seal the expert (original) level so chips show there too (§1.2).
+        for par_id, text, is_heading in paragraphs:
+            if is_heading or not per_par.get(par_id):
+                continue
+            cache.save_rewrite(
+                doc_id, par_id, "expert",
+                invariants.strip_tokens_to_seal(text, per_par[par_id]),
+                audit="faithful",
+            )
+
+    # --- §5 steps 3–5: rewrite, verify, audit, assemble ----------------------
     for par_id, text, is_heading in paragraphs:
         if is_heading:
             continue
+        facts = per_par.get(par_id, [])
+        tokenized, expected = invariants.tokenize(text, facts) if facts else (text, {})
+        id_to_text = {f["id"]: f["text"] for f in facts}
+        language = _detect_language(text)
+
         for level in prompts.REWRITE_LEVELS:
             try:
-                html = _rewrite_paragraph(text, level)
-                cache.save_rewrite(doc_id, par_id, level, html, audit="pending")
+                rewrite_tok, ok = _rewrite_preserving(tokenized, level, expected, language)
             except LLMError:
-                # Serve original for this level, marked failed (§3.2 / §5 step 3).
-                cache.save_rewrite(doc_id, par_id, level, text, audit="failed")
+                sealed_original = invariants.resolve(tokenized, id_to_text, seal=True)
+                cache.save_rewrite(doc_id, par_id, level, sealed_original, audit="failed",
+                                   audit_note="Writer failed after retry; original shown.")
+                continue
+
+            if not ok:
+                # Sealed fact altered/dropped and survived the retry → red (§1.2).
+                sealed_original = invariants.resolve(tokenized, id_to_text, seal=True)
+                cache.save_rewrite(doc_id, par_id, level, sealed_original, audit="failed",
+                                   audit_note="A sealed fact was altered or dropped; original shown for safety.")
+                continue
+
+            rewrite_plain = invariants.resolve(rewrite_tok, id_to_text, seal=False)
+            rewrite_html = invariants.resolve(rewrite_tok, id_to_text, seal=True)
+            if USE_AUDIT:
+                verdict, note = _audit(text, rewrite_plain, auditor_model)
+            else:
+                verdict, note = "pending", None
+            cache.save_rewrite(doc_id, par_id, level, rewrite_html, audit=verdict, audit_note=note)
 
 
 def ingest(text: str, title: str) -> tuple[str, int]:

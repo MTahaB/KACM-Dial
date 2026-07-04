@@ -56,8 +56,12 @@ def writer_correction(missing_or_dup: list[str]) -> str:
 INVARIANT_SYSTEM = (
     "You extract sealed facts from one paragraph. Return strict JSON of the form "
     '{"invariants":[{"text":"...","kind":"amount|date|name|ref|pct"}]}. '
-    "Only include facts whose alteration would change what the reader is entitled "
-    "to, owes, or must do by when. No commentary."
+    "Each fact's text must be a SHORT ATOMIC SPAN copied verbatim from the "
+    "paragraph — a single proper name, amount, percentage, date, or legal "
+    "reference. Never return a whole clause or sentence. Only include facts whose "
+    "alteration would change what the reader is entitled to, owes, or must do by "
+    "when. Prefer proper names and references (regex already covers plain numbers). "
+    "No commentary."
 )
 
 AUDITOR_SYSTEM = (

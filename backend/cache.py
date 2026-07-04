@@ -51,6 +51,13 @@ def init_db() -> None:
                 audit_note TEXT,
                 PRIMARY KEY (doc_id, par_id, level)
             );
+            CREATE TABLE IF NOT EXISTS invariants (
+                doc_id TEXT NOT NULL,
+                inv_id TEXT NOT NULL,
+                text   TEXT NOT NULL,
+                kind   TEXT NOT NULL,
+                PRIMARY KEY (doc_id, inv_id)
+            );
             """
         )
         conn.commit()
@@ -100,6 +107,28 @@ def save_rewrite(
             (doc_id, par_id, level, html, audit, audit_note),
         )
         conn.commit()
+
+
+def save_invariants(doc_id: str, invariants: list[dict]) -> None:
+    """Persist the doc-level sealed facts. `invariants` = [{id, text, kind}]."""
+    with _lock:
+        conn = _get_conn()
+        for inv in invariants:
+            conn.execute(
+                "INSERT OR REPLACE INTO invariants (doc_id, inv_id, text, kind) VALUES (?,?,?,?)",
+                (doc_id, inv["id"], inv["text"], inv["kind"]),
+            )
+        conn.commit()
+
+
+def get_invariants(doc_id: str) -> list[dict]:
+    with _lock:
+        conn = _get_conn()
+        rows = conn.execute(
+            "SELECT inv_id, text, kind FROM invariants WHERE doc_id = ? ORDER BY inv_id",
+            (doc_id,),
+        ).fetchall()
+    return [{"id": r["inv_id"], "text": r["text"], "kind": r["kind"]} for r in rows]
 
 
 def document_exists(doc_id: str) -> bool:
@@ -157,82 +186,57 @@ def get_doc(doc_id: str, level: str) -> Optional[tuple[str, list[dict]]]:
         ).fetchall()
         out: list[dict] = []
         for p in paras:
-            par_id = p["par_id"]
-            if p["is_heading"] or level == "expert":
-                out.append(
-                    {
-                        "id": par_id,
-                        "html": p["original"],
-                        "level": level,
-                        "audit": "faithful",
-                        "audit_note": None,
-                    }
-                )
-                continue
-            row = conn.execute(
-                "SELECT html, audit, audit_note FROM rewrites WHERE doc_id = ? AND par_id = ? AND level = ?",
-                (doc_id, par_id, level),
-            ).fetchone()
-            if row is None:
-                # Not generated yet — serve original, mark pending.
-                out.append(
-                    {
-                        "id": par_id,
-                        "html": p["original"],
-                        "level": level,
-                        "audit": "pending",
-                        "audit_note": None,
-                    }
-                )
-            else:
-                out.append(
-                    {
-                        "id": par_id,
-                        "html": row["html"],
-                        "level": level,
-                        "audit": row["audit"],
-                        "audit_note": row["audit_note"],
-                    }
-                )
+            out.append(_assemble_paragraph(conn, doc_id, p, level))
     return title, out
+
+
+def _read_rewrite(conn, doc_id: str, par_id: int, level: str):
+    return conn.execute(
+        "SELECT html, audit, audit_note FROM rewrites WHERE doc_id = ? AND par_id = ? AND level = ?",
+        (doc_id, par_id, level),
+    ).fetchone()
+
+
+def _assemble_paragraph(conn, doc_id: str, p, level: str) -> dict:
+    """Resolve one paragraph at `level`, reading seal-bearing rows from `rewrites`.
+
+    Headings always serve their (pass-through) expert row. Non-headings serve the
+    requested level; if that level isn't generated yet, they fall back to the
+    expert row and are marked `pending` so the dial always shows something.
+    """
+    par_id = p["par_id"]
+    effective = "expert" if p["is_heading"] else level
+    row = _read_rewrite(conn, doc_id, par_id, effective)
+    if row is not None:
+        return {
+            "id": par_id,
+            "html": row["html"],
+            "level": level,
+            "audit": row["audit"],
+            "audit_note": row["audit_note"],
+        }
+    # Level not generated yet: fall back to expert row, else raw original.
+    expert = _read_rewrite(conn, doc_id, par_id, "expert")
+    html = expert["html"] if expert is not None else p["original"]
+    return {
+        "id": par_id,
+        "html": html,
+        "level": level,
+        "audit": "faithful" if (p["is_heading"] or level == "expert") else "pending",
+        "audit_note": None,
+    }
 
 
 def get_paragraph(doc_id: str, par_id: int, level: str) -> Optional[dict]:
     with _lock:
         conn = _get_conn()
         p = conn.execute(
-            "SELECT original, is_heading FROM paragraphs WHERE doc_id = ? AND par_id = ?",
+            "SELECT par_id, original, is_heading FROM paragraphs WHERE doc_id = ? AND par_id = ?",
             (doc_id, par_id),
         ).fetchone()
         if p is None:
             return None
-        if p["is_heading"] or level == "expert":
-            return {
-                "id": par_id,
-                "html": p["original"],
-                "level": level,
-                "audit": "faithful",
-                "audit_note": None,
-            }
-        row = conn.execute(
-            "SELECT html, audit, audit_note FROM rewrites WHERE doc_id = ? AND par_id = ? AND level = ?",
-            (doc_id, par_id, level),
-        ).fetchone()
-    if row is None:
-        return {
-            "id": par_id,
-            "html": p["original"],
-            "level": level,
-            "audit": "pending",
-            "audit_note": None,
-        }
-    return {
-        "id": par_id,
-        "html": row["html"],
-        "level": level,
-        "audit": row["audit"],
-        "audit_note": row["audit_note"],
-    }
+        return _assemble_paragraph(conn, doc_id, p, level)
 
 
 def count_rewrites(doc_id: str) -> int:
@@ -242,4 +246,15 @@ def count_rewrites(doc_id: str) -> int:
         return conn.execute(
             f"SELECT COUNT(*) AS c FROM rewrites WHERE doc_id = ? AND level IN ({placeholders})",
             (doc_id, *REWRITE_LEVELS),
+        ).fetchone()["c"]
+
+
+def count_by_audit(doc_id: str, verdict: str) -> int:
+    """Count rewrite rows (non-expert) with a given audit verdict — for /metrics."""
+    with _lock:
+        conn = _get_conn()
+        placeholders = ",".join("?" * len(REWRITE_LEVELS))
+        return conn.execute(
+            f"SELECT COUNT(*) AS c FROM rewrites WHERE doc_id = ? AND audit = ? AND level IN ({placeholders})",
+            (doc_id, verdict, *REWRITE_LEVELS),
         ).fetchone()["c"]

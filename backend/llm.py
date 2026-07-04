@@ -111,3 +111,14 @@ def ping() -> bool:
         return True
     except requests.RequestException:
         return False
+
+
+def available_models() -> set[str]:
+    """Set of model tags currently pulled in Ollama (empty if unreachable)."""
+    try:
+        resp = requests.get(f"{OLLAMA_HOST}/api/tags", timeout=5)
+        resp.raise_for_status()
+        return {m.get("name", "") for m in resp.json().get("models", [])}
+    except requests.RequestException:
+        return set()
+

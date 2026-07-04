@@ -43,7 +43,8 @@ React + Vite  ──HTTP(localhost:8000)──►  FastAPI  ──localhost:1143
 
 ```bash
 # 0. Prereqs: Python 3.11+, Node 18+, Ollama running, models pulled:
-ollama pull gemma3:4b-it-qat            # writer (override with DIAL_WRITER_MODEL)
+ollama pull gemma3:4b-it-qat            # writer   (override with DIAL_WRITER_MODEL)
+ollama pull nemotron-mini               # auditor  (override with DIAL_AUDITOR_MODEL)
 
 # 1. Backend
 cd backend && python -m venv .venv && ./.venv/Scripts/pip install -r requirements.txt
@@ -71,17 +72,45 @@ serves canned data (`src/mock.ts`) implementing all five endpoints.
 `GET /paragraph/{doc_id}/{par_id}?level=…` · `GET /metrics/{doc_id}`.
 No other endpoints, no websockets (poll `/status` at 500ms).
 
+## Trust layer (Tier 2)
+
+- **Sealed invariants.** Hard facts — amounts, dates, percentages, proper names,
+  legal references — are extracted once from the original (regex Pass A ∪ a Gemma
+  JSON pass), replaced with `⟦INV:id⟧` tokens before rewriting, and required to
+  reappear **exactly once, unchanged** in every rewrite. They render as lock-glyph
+  "sealed chips", verbatim and identical at every level. If the writer breaks a
+  token, one corrective retry fires; if it still fails, the original is served and
+  the passage is flagged red.
+- **Dual-model fidelity audit.** Every rewrite is checked by a *different model
+  family* — **NVIDIA Nemotron** — at temperature 0: `faithful` (subtle green
+  check) or `uncertain` (orange highlight + the auditor's one-sentence reason,
+  "verify this passage yourself"). If Nemotron isn't available it falls back to
+  Gemma self-audit (product survives, NVIDIA bonus lost).
+- **Honest abstention.** When the auditor is unsure, the UI says so. *The app that
+  knows when it might have betrayed the text.* The audit is a heuristic dual-model
+  check with explicit abstention — not a formal statistical guarantee.
+
+## Benchmark
+
+Generated from `metrics.jsonl` (`python backend/bench.py`). Numbers below are from
+a **CPU-only** dev box — expect an order of magnitude more on the demo GPU:
+
+| Model | Role | Avg tokens/s |
+|---|---|---:|
+| `gemma3:4b-it-qat` | writer | ~3 (CPU) |
+| `nemotron-mini:latest` | auditor | ~4 (CPU) |
+
 ## Build status
 
 - **Tier 1 (submittable core) — DONE.** `/ingest → /doc` pipeline with rewrite at
-  4 levels, chunking, SQLite cache, streamed progress, and the React reader +
-  dial + cascade morph. Verified end-to-end against real Gemma on the French
-  administrative sample (language preserved, facts preserved).
-- **Tier 2 (trust & bonus) — scaffolded, not wired.** Invariant sealing
-  (`invariants.py` Pass A regex ready) and Nemotron audit (`prompts.py` auditor
-  prompt ready); `/doc` currently returns `invariants: []` and rewrites marked
-  `pending`. Turning these on is the next step.
-- **Tier 3 (zoom / split view) — not started.**
+  4 levels, chunking, SQLite cache, streamed progress, React reader + dial +
+  cascade morph.
+- **Tier 2 (trust & bonus) — DONE.** Invariant extraction + sealed chips,
+  token-preserving rewrite with corrective retry, Nemotron fidelity audit +
+  badges, `/metrics` with uncertain/seal-violation counts, benchmark generator.
+  Verified end-to-end against real Gemma + Nemotron (facts sealed at every level,
+  auditor catches a deliberate obligation flip).
+- **Tier 3 (semantic zoom / split view) — not started.**
 
 ## Honest limitations
 

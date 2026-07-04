@@ -25,5 +25,12 @@ WRITER_TEMPERATURE = float(os.environ.get("DIAL_WRITER_TEMPERATURE", "0.3"))
 WRITER_MAX_TOKENS = int(os.environ.get("DIAL_WRITER_MAX_TOKENS", "1024"))
 LLM_TIMEOUT_S = int(os.environ.get("DIAL_LLM_TIMEOUT_S", "120"))
 
+# Auditor runs at temperature 0 (§5 step 4 / §6). Toggles for Tier 2 features so
+# Tier 1 behaviour is recoverable by setting either to "0".
+AUDITOR_TEMPERATURE = float(os.environ.get("DIAL_AUDITOR_TEMPERATURE", "0"))
+USE_INVARIANTS = os.environ.get("DIAL_USE_INVARIANTS", "1") == "1"
+USE_INVARIANT_LLM = os.environ.get("DIAL_USE_INVARIANT_LLM", "1") == "1"
+USE_AUDIT = os.environ.get("DIAL_USE_AUDIT", "1") == "1"
+
 # Reported VRAM figure for the metrics endpoint (set at deploy time; 0 = unknown).
 VRAM_GB = float(os.environ.get("DIAL_VRAM_GB", "0"))
