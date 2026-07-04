@@ -1,0 +1,381 @@
+/* Dial — calm, editorial "reading app" aesthetic (SPEC §7).
+   Serif for document text, clean sans for UI, generous margins.
+   NOT a dashboard, NOT a chat app. One screen, zero navigation. */
+
+:root {
+  --paper: #faf8f3;
+  --ink: #1f1b16;
+  --ink-soft: #5b544a;
+  --rule: #e6e0d4;
+  --accent: #3a5a40; /* muted forest — "local / trusted" */
+  --uncertain: #d98324;
+  --uncertain-tint: #fbf1e3;
+  --fail: #b23a48;
+  --seal-bg: #eef1ec;
+  --seal-border: #c9d3c4;
+  --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --serif: "Iowan Old Style", "Palatino Linotype", "Georgia", serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+.app {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 32px 24px 120px;
+}
+
+/* ---- header ------------------------------------------------------------- */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 28px;
+}
+
+.brand {
+  font-weight: 700;
+  font-size: 20px;
+  letter-spacing: -0.01em;
+}
+
+.brand span {
+  color: var(--ink-soft);
+  font-weight: 400;
+  font-size: 13px;
+  margin-left: 10px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--accent);
+  background: #eef2ec;
+  border: 1px solid var(--seal-border);
+  padding: 5px 11px;
+  border-radius: 999px;
+  font-weight: 500;
+}
+
+.pill .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 rgba(58, 90, 64, 0.5);
+  animation: pulse 2.4s infinite;
+}
+
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 rgba(58, 90, 64, 0.45); }
+  70% { box-shadow: 0 0 0 6px rgba(58, 90, 64, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(58, 90, 64, 0); }
+}
+
+/* ---- ingest ------------------------------------------------------------- */
+.ingest textarea {
+  width: 100%;
+  min-height: 220px;
+  font-family: var(--serif);
+  font-size: 17px;
+  line-height: 1.6;
+  padding: 18px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+  resize: vertical;
+}
+
+.ingest .row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+button {
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 10px 18px;
+  border-radius: 8px;
+  border: 1px solid var(--rule);
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+button:hover {
+  border-color: var(--accent);
+}
+
+button.primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.sample-chip {
+  font-size: 12px;
+  padding: 6px 12px;
+}
+
+/* ---- progress ----------------------------------------------------------- */
+.progress-wrap {
+  margin: 40px 0;
+}
+
+.progress-label {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin-bottom: 10px;
+  display: flex;
+  justify-content: space-between;
+}
+
+.progress-track {
+  height: 6px;
+  background: var(--rule);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+/* ---- dial --------------------------------------------------------------- */
+.dial {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--paper);
+  padding: 16px 0 18px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 32px;
+}
+
+.dial-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.dial-labels button {
+  border: none;
+  background: none;
+  padding: 4px 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.dial-labels button.active {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.dial-track {
+  position: relative;
+  height: 4px;
+  background: var(--rule);
+  border-radius: 999px;
+  margin: 0 8px;
+}
+
+.dial-detents {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: space-between;
+}
+
+.dial-detent {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--paper);
+  border: 2px solid var(--rule);
+  transform: translateY(-4px);
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.dial-detent.filled {
+  border-color: var(--accent);
+}
+
+.dial-thumb {
+  position: absolute;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 3px solid var(--paper);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  transform: translate(-50%, -50%);
+  transition: left 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.dial input[type="range"] {
+  position: absolute;
+  inset: -8px 0;
+  width: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+/* ---- reader / paragraphs ----------------------------------------------- */
+.doc-title {
+  font-family: var(--serif);
+  font-size: 26px;
+  font-weight: 700;
+  margin: 0 0 24px;
+  line-height: 1.3;
+}
+
+.paragraph {
+  font-family: var(--serif);
+  font-size: 18px;
+  line-height: 1.75;
+  color: var(--ink);
+  margin: 0 0 22px;
+  padding: 4px 0 4px 14px;
+  border-left: 3px solid transparent;
+  /* cascade morph: fade + slight blur during a level change (SPEC §7) */
+  transition: opacity 0.25s ease, filter 0.25s ease, border-color 0.3s,
+    background 0.3s;
+}
+
+.paragraph.heading {
+  font-weight: 700;
+  font-size: 20px;
+  border-left-color: transparent;
+  padding-left: 0;
+}
+
+.paragraph.morphing {
+  opacity: 0;
+  filter: blur(3px);
+}
+
+.paragraph.uncertain {
+  border-left-color: var(--uncertain);
+  background: var(--uncertain-tint);
+  border-radius: 0 6px 6px 0;
+}
+
+.paragraph.failed {
+  border-left-color: var(--fail);
+}
+
+/* ---- sealed chip -------------------------------------------------------- */
+.seal {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--seal-bg);
+  border: 1px solid var(--seal-border);
+  border-radius: 5px;
+  padding: 0 6px;
+  font-family: "SFMono-Regular", "Consolas", monospace;
+  font-size: 0.9em;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+.seal .lock {
+  font-size: 0.8em;
+  opacity: 0.6;
+}
+
+/* ---- audit badge -------------------------------------------------------- */
+.audit-badge {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  margin-left: 6px;
+  font-size: 12px;
+  cursor: default;
+  position: relative;
+}
+
+.audit-badge.faithful {
+  color: var(--accent);
+}
+
+.audit-badge.uncertain {
+  color: var(--uncertain);
+}
+
+.audit-badge.failed {
+  color: var(--fail);
+}
+
+.audit-badge .tip {
+  visibility: hidden;
+  opacity: 0;
+  position: absolute;
+  bottom: 130%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 240px;
+  background: var(--ink);
+  color: #fff;
+  font-family: var(--sans);
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 9px 11px;
+  border-radius: 8px;
+  transition: opacity 0.15s;
+  z-index: 10;
+}
+
+.audit-badge:hover .tip {
+  visibility: visible;
+  opacity: 1;
+}
+
+/* ---- footer / metrics --------------------------------------------------- */
+.metrics {
+  margin-top: 48px;
+  padding-top: 18px;
+  border-top: 1px solid var(--rule);
+  font-size: 12px;
+  color: var(--ink-soft);
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.metrics b {
+  color: var(--ink);
+  font-weight: 600;
+}
