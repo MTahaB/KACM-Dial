@@ -5,5 +5,5 @@ import react from "@vitejs/plugin-react";
 // CORS is open on the backend for dev.
 export default defineConfig({
   plugins: [react()],
-  server: { port: 5173 },
+  server: { port: Number(process.env.PORT) || 5173 },
 });

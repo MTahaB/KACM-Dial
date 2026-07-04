@@ -54,6 +54,17 @@ const AUDIT_NOTE: Array<string | null> = [
 
 const DOC_ID = "mockdoc00001";
 
+// Mirror the real backend: wrap invariant occurrences in <seal id="..">…</seal>
+// so the offline mock exercises SealedChip exactly like a live /doc response.
+function sealHtml(text: string): string {
+  let out = text;
+  const byLen = [...INVARIANTS].sort((a, b) => b.text.length - a.text.length);
+  for (const inv of byLen) {
+    out = out.replace(inv.text, `<seal id="${inv.id}">${inv.text}</seal>`);
+  }
+  return out;
+}
+
 export async function ingest(_t: string, _title: string): Promise<IngestResponse> {
   return { doc_id: DOC_ID, n_paragraphs: TEXT.expert.length };
 }
@@ -67,7 +78,7 @@ export async function status(_docId: string): Promise<StatusResponse> {
 export async function doc(_docId: string, level: Level): Promise<DocResponse> {
   const paragraphs: ParagraphOut[] = TEXT[level].map((html, id) => ({
     id,
-    html,
+    html: sealHtml(html),
     level,
     audit: level === "expert" ? "faithful" : AUDIT[id] ?? "faithful",
     audit_note: level === "expert" ? null : AUDIT_NOTE[id] ?? null,
@@ -82,7 +93,7 @@ export async function paragraph(
 ): Promise<ParagraphOut> {
   return {
     id: parId,
-    html: TEXT[level][parId] ?? "",
+    html: sealHtml(TEXT[level][parId] ?? ""),
     level,
     audit: level === "expert" ? "faithful" : AUDIT[parId] ?? "faithful",
     audit_note: level === "expert" ? null : AUDIT_NOTE[parId] ?? null,

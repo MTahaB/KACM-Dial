@@ -171,13 +171,30 @@ button:disabled {
 
 /* ---- dial --------------------------------------------------------------- */
 .dial {
+  padding: 4px 0;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Sticky toolbar wraps the dial + split toggle in the single reader. */
+.toolbar {
   position: sticky;
   top: 0;
   z-index: 5;
   background: var(--paper);
-  padding: 16px 0 18px;
+  display: flex;
+  align-items: flex-end;
+  gap: 18px;
+  padding: 14px 0 16px;
   border-bottom: 1px solid var(--rule);
-  margin-bottom: 32px;
+  margin-bottom: 30px;
+}
+
+.split-toggle {
+  flex: 0 0 auto;
+  font-size: 13px;
+  padding: 8px 14px;
+  white-space: nowrap;
 }
 
 .dial-labels {
@@ -262,6 +279,7 @@ button:disabled {
 }
 
 .paragraph {
+  position: relative;
   font-family: var(--serif);
   font-size: 18px;
   line-height: 1.75;
@@ -378,4 +396,118 @@ button:disabled {
 .metrics b {
   color: var(--ink);
   font-weight: 600;
+}
+
+/* ---- Tier 3: semantic zoom --------------------------------------------- */
+.paragraph.dimmed {
+  opacity: 0.4;
+}
+
+.paragraph.zoomed {
+  border-left-color: var(--accent);
+  background: #f0f4ee;
+  border-radius: 0 6px 6px 0;
+}
+
+.zoom-tag {
+  font-family: var(--sans);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #e7efe4;
+  color: var(--accent);
+  vertical-align: middle;
+  user-select: none;
+}
+
+.zoom-ctl {
+  position: absolute;
+  top: 2px;
+  right: -46px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.paragraph:hover .zoom-ctl {
+  opacity: 1;
+}
+
+.zoom-ctl button {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--ink-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.zoom-ctl button:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ---- Tier 3: split "two readers" --------------------------------------- */
+.split {
+  /* break out of the narrow reading column into a wide two-up layout */
+  position: relative;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 96vw;
+  max-width: 1200px;
+}
+
+.split-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--paper);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 4px 14px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 20px;
+}
+
+.split-header .doc-title {
+  margin: 0;
+}
+
+.split-cols {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.split-col {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.split-scroll {
+  height: 70vh;
+  overflow-y: auto;
+  padding: 20px 22px;
+  background: #fff;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+}
+
+/* dial sits above each column, not page-sticky, inside split */
+.split-col .dial {
+  flex: 0 0 auto;
 }

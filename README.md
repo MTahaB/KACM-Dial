@@ -110,7 +110,10 @@ a **CPU-only** dev box — expect an order of magnitude more on the demo GPU:
   badges, `/metrics` with uncertain/seal-violation counts, benchmark generator.
   Verified end-to-end against real Gemma + Nemotron (facts sealed at every level,
   auditor catches a deliberate obligation flip).
-- **Tier 3 (semantic zoom / split view) — not started.**
+- **Tier 3 (the wow) — DONE.** Per-paragraph **semantic zoom** (hover +/−
+  controls or ctrl+scroll raise one paragraph's level of detail while the rest
+  hold, with a 1s focus dim), **split "two readers"** view (two scroll-synced
+  columns with independent dials), and a design pass. Verified live in-browser.
 
 ## Honest limitations
 

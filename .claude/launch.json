@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dial-frontend-mock",
+      "runtimeExecutable": "C:/Program Files/nodejs/node.exe",
+      "runtimeArgs": [
+        "C:/Users/XPS/Documents/Dial/frontend/node_modules/vite/bin/vite.js",
+        "C:/Users/XPS/Documents/Dial/frontend",
+        "--mode",
+        "mock"
+      ],
+      "port": 5173,
+      "autoPort": true
+    }
+  ]
+}
