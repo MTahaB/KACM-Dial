@@ -127,4 +127,3 @@ a **CPU-only** dev box — expect an order of magnitude more on the demo GPU:
 - **Taha** — backend, models, prompts, metrics.
 - **Ismail** — frontend, video, README.
 
-See [`SPEC.md`](SPEC.md) for the full technical specification.
