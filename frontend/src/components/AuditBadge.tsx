@@ -1,6 +1,7 @@
-// Fidelity audit indicator (SPEC §7). Tier 1 backend marks rewrites `pending`
-// (no auditor yet); we render nothing for pending/faithful-on-expert to keep the
-// page calm, a subtle check for faithful, and the orange note for uncertain.
+// Audit state, rendered in the paragraph's left gutter (SPEC front).
+// Trust is silent by default: the faithful check only appears on paragraph
+// hover. Doubt is never silent: uncertain / violation marks stay visible,
+// with the auditor's one-sentence reason in a tooltip. No modals, ever.
 
 import type { AuditVerdict } from "../api";
 
@@ -15,26 +16,21 @@ export default function AuditBadge({
 
   if (verdict === "faithful") {
     return (
-      <span className="audit-badge faithful" aria-label="faithful" title="fidelity check: faithful">
+      <span className="gutter-check" aria-label="fidelity check passed" title="Fidelity check: faithful">
         ✓
       </span>
     );
   }
 
-  if (verdict === "failed") {
-    return (
-      <span className="audit-badge failed" aria-label="sealed fact altered">
-        ⚠
-        <span className="tip">A sealed fact was altered or missing after retry — original text shown for safety.</span>
-      </span>
-    );
-  }
-
-  // uncertain
+  const failed = verdict === "failed";
   return (
-    <span className="audit-badge uncertain" aria-label="uncertain" tabIndex={0}>
-      ⚑
-      <span className="tip">{note ?? "The auditor is uncertain — verify this passage yourself."}</span>
+    <span className={`tip-anchor gutter-mark ${failed ? "failed" : "uncertain"}`} tabIndex={0}>
+      !
+      <span className="tip" role="tooltip">
+        {failed
+          ? note ?? "A sealed fact was altered or missing after retry — original text shown for safety."
+          : note ?? "The auditor is uncertain — verify this passage yourself."}
+      </span>
     </span>
   );
 }

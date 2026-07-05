@@ -16,7 +16,7 @@ import json
 import re
 
 import prompts
-from config import AUDITOR_MODEL  # noqa: F401  (kept for symmetry; auditor lives in orchestrator)
+from config import INV_PREFIX, INV_SUFFIX, inv_token
 
 # Pass A patterns (§5 step 2). Order matters only for readability; dedup is global.
 _PATTERNS: list[tuple[str, str]] = [
@@ -39,7 +39,11 @@ _PATTERNS: list[tuple[str, str]] = [
     ),
 ]
 
-_TOKEN_RE = re.compile(r"⟦INV:([A-Za-z0-9_]+)⟧")
+# Marker regex built from the central format (config.INV_STYLE) so switching to
+# ascii [[INV:id]] — brief step 1.d — changes tokenize/verify/resolve coherently.
+_TOKEN_RE = re.compile(
+    re.escape(INV_PREFIX) + r"([A-Za-z0-9_]+)" + re.escape(INV_SUFFIX)
+)
 _VALID_KINDS = {"amount", "date", "name", "ref", "pct"}
 # Pass B facts longer than this are rejected — a sealed fact is an atomic span
 # (a name, amount, date, reference), never a whole clause.
@@ -127,7 +131,7 @@ def tokenize(text: str, facts: list[dict]) -> tuple[str, dict[str, int]]:
     out = text
     counts: dict[str, int] = {}
     for f in ordered:
-        token = f"⟦INV:{f['id']}⟧"
+        token = inv_token(f["id"])
         n = out.count(f["text"])
         if n:
             out = out.replace(f["text"], token)
@@ -142,6 +146,23 @@ def verify(rewrite: str, expected: dict[str, int]) -> list[str]:
         present[m.group(1)] = present.get(m.group(1), 0) + 1
     bad = [i for i, c in expected.items() if present.get(i, 0) != c]
     return bad
+
+
+def strip_unknown(rewrite: str, expected: dict[str, int]) -> str:
+    """Remove hallucinated tokens — ids the paragraph never had.
+
+    The writer system prompt teaches the token syntax, so on seal-less
+    paragraphs the model sometimes emits a decorative ⟦INV:x⟧. Those ids are
+    fabrications by construction (nothing real to lose): drop them before
+    verification instead of wasting a corrective retry, and collapse the
+    whitespace left behind.
+    """
+
+    def repl(m: re.Match[str]) -> str:
+        return m.group(0) if m.group(1) in expected else ""
+
+    out = _TOKEN_RE.sub(repl, rewrite)
+    return re.sub(r"[ \t]{2,}", " ", out).strip()
 
 
 def resolve(text: str, id_to_text: dict[str, str], *, seal: bool) -> str:

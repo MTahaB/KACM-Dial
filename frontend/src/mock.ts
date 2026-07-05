@@ -65,24 +65,55 @@ function sealHtml(text: string): string {
   return out;
 }
 
+// Simulated generation: the mock "develops" the document over a few seconds so
+// the offline demo shows the same photo-develop moment as the real backend.
+const DEVELOP_TOTAL_MS = 7000;
+let ingestT0 = 0;
+
+function developProgress(): number {
+  if (!ingestT0) return 1;
+  return Math.min(1, (Date.now() - ingestT0) / DEVELOP_TOTAL_MS);
+}
+
 export async function ingest(_t: string, _title: string): Promise<IngestResponse> {
+  ingestT0 = Date.now();
   return { doc_id: DOC_ID, n_paragraphs: TEXT.expert.length };
 }
 
 export async function status(_docId: string): Promise<StatusResponse> {
-  // Mock is "instant": always fully generated.
   const total = TEXT.expert.length * 3;
-  return { progress: 1, paragraphs_done: total, total_jobs: total };
+  const p = developProgress();
+  return {
+    progress: p,
+    paragraphs_done: Math.round(p * total),
+    total_jobs: total,
+  };
 }
 
 export async function doc(_docId: string, level: Level): Promise<DocResponse> {
-  const paragraphs: ParagraphOut[] = TEXT[level].map((html, id) => ({
-    id,
-    html: sealHtml(html),
-    level,
-    audit: level === "expert" ? "faithful" : AUDIT[id] ?? "faithful",
-    audit_note: level === "expert" ? null : AUDIT_NOTE[id] ?? null,
-  }));
+  const p = developProgress();
+  const n = TEXT.expert.length;
+  const paragraphs: ParagraphOut[] = TEXT[level].map((html, id) => {
+    // Paragraphs "develop" top-to-bottom: not-yet-generated ones serve the
+    // original text marked pending, exactly like the real backend fallback.
+    const developed = level === "expert" || (id + 1) / n <= p;
+    if (!developed) {
+      return {
+        id,
+        html: sealHtml(TEXT.expert[id]),
+        level,
+        audit: "pending",
+        audit_note: null,
+      };
+    }
+    return {
+      id,
+      html: sealHtml(html),
+      level,
+      audit: level === "expert" ? "faithful" : AUDIT[id] ?? "faithful",
+      audit_note: level === "expert" ? null : AUDIT_NOTE[id] ?? null,
+    };
+  });
   return { title: TITLE, paragraphs, invariants: INVARIANTS };
 }
 

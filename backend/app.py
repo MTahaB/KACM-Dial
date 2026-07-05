@@ -12,7 +12,14 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import cache
 import orchestrator
-from config import AUDITOR_MODEL, METRICS_PATH, VRAM_GB, WRITER_MODEL
+from config import (
+    AUDITOR_MODEL,
+    DIFFUSION_MODEL,
+    METRICS_PATH,
+    VRAM_GB,
+    WRITER_BACKEND,
+    WRITER_MODEL,
+)
 from models import (
     DocResponse,
     IngestRequest,
@@ -105,8 +112,9 @@ def metrics(doc_id: str) -> MetricsResponse:
         pass
     avg_tps = round(total_tps / n_calls, 2) if n_calls else 0.0
 
+    active_writer = DIFFUSION_MODEL if WRITER_BACKEND == "diffusion" else WRITER_MODEL
     return MetricsResponse(
-        model_writer=WRITER_MODEL,
+        model_writer=active_writer,
         model_auditor=AUDITOR_MODEL,
         tokens_per_s_avg=avg_tps,
         vram_gb=VRAM_GB,

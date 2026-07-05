@@ -5,6 +5,8 @@ Tier 2 has a single place to tune, but are not invoked yet.
 """
 from __future__ import annotations
 
+from config import inv_token
+
 # Level definitions — shared constant (§6).
 LEVEL_DEFINITIONS: dict[str, str] = {
     "expert": "original text, unchanged",
@@ -19,7 +21,7 @@ REWRITE_LEVELS: tuple[str, ...] = ("standard", "plain", "simple")
 WRITER_SYSTEM = (
     "You rewrite one paragraph of a document at a specified reading level. "
     "Preserve ALL meaning, obligations, conditions, and nuances. Never add "
-    "information. Never drop a condition or exception. Tokens like ⟦INV:x⟧ are "
+    f"information. Never drop a condition or exception. Tokens like {inv_token('x')} are "
     "sealed facts: reproduce each exactly once, unchanged. Match the document's "
     "language (French stays French, English stays English). Output only the "
     "rewritten paragraph, no preamble."
@@ -47,7 +49,7 @@ def writer_correction(missing_or_dup: list[str]) -> str:
     joined = ", ".join(missing_or_dup)
     return (
         "\n\nYour previous rewrite broke sealed tokens. Every token of the form "
-        f"⟦INV:x⟧ must appear EXACTLY ONCE, unchanged. Fix these: {joined}. "
+        f"{inv_token('x')} must appear EXACTLY ONCE, unchanged. Fix these: {joined}. "
         "Output only the corrected paragraph."
     )
 

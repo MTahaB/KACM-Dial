@@ -125,6 +125,6 @@ a **CPU-only** dev box — expect an order of magnitude more on the demo GPU:
 ## Contributors
 
 - **Taha** — backend, models, prompts, metrics.
-- **Person B** — frontend, video, README.
+- **Ismail** — frontend, video, README.
 
 See [`SPEC.md`](SPEC.md) for the full technical specification.

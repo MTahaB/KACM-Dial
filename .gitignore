@@ -4,6 +4,8 @@ __pycache__/
 *.pyc
 backend/dial.db
 backend/metrics.jsonl
+backend/baseline_*.json
+backend/abtest_*.json
 
 # Node / Vite
 frontend/node_modules/

@@ -1,9 +1,9 @@
-// One paragraph of the document (SPEC §7). Renders `html` — which contains
-// <seal id="..">…</seal> spans in Tier 2 — resolving those to SealedChip. Carries
-// the cascade-morph class, the audit state, and (Tier 3) the semantic-zoom
-// affordance: per-paragraph +/− controls on hover and ctrl+scroll.
+// One paragraph of the document. The text is king; all affordances live in the
+// left gutter (audit state, semantic-zoom controls, per-paragraph level tag)
+// and appear on hover. Flagged passages offer an inline "see original"
+// comparison — never a modal.
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Invariant, Level, ParagraphOut } from "../api";
 import { LEVEL_LABEL } from "../text";
 import AuditBadge from "./AuditBadge";
@@ -15,13 +15,14 @@ interface Props {
   isHeading: boolean;
   morphing: boolean;
   delayMs: number;
-  // Tier 3 semantic zoom (optional — omitted in split-view columns).
+  originalHtml?: string; // expert text, for the inline comparison on flagged passages
+  hideAudit?: boolean; // split view: audit shows only on the more simplified column
   zoomable?: boolean;
-  overridden?: boolean; // true when this paragraph is at a non-global level
+  overridden?: boolean;
   effectiveLevel?: Level;
   dimmed?: boolean;
-  onMore?: () => void; // more detail (toward expert)
-  onLess?: () => void; // less detail (toward simple)
+  onMore?: () => void;
+  onLess?: () => void;
 }
 
 // Split html on <seal>…</seal> markup and interleave SealedChip components.
@@ -35,11 +36,15 @@ function renderHtml(html: string, invariants: Invariant[]) {
   while ((m = re.exec(html)) !== null) {
     if (m.index > last) parts.push(html.slice(last, m.index));
     const text = m[2] || byId.get(m[1]) || m[1];
-    parts.push(<SealedChip key={`s${key++}`} text={text} />);
+    parts.push(<SealedChip key={`s${key++}`} text={text} sealId={m[1]} />);
     last = re.lastIndex;
   }
   if (last < html.length) parts.push(html.slice(last));
   return parts.length ? parts : [html];
+}
+
+function stripSeals(html: string): string {
+  return html.replace(/<seal\s+id="[^"]+"\s*\/?>([^<]*)<\/seal>/g, "$1");
 }
 
 export default function Paragraph({
@@ -48,6 +53,8 @@ export default function Paragraph({
   isHeading,
   morphing,
   delayMs,
+  originalHtml,
+  hideAudit = false,
   zoomable = false,
   overridden = false,
   effectiveLevel,
@@ -56,9 +63,9 @@ export default function Paragraph({
   onLess,
 }: Props) {
   const ref = useRef<HTMLParagraphElement>(null);
+  const [showOriginal, setShowOriginal] = useState(false);
 
-  // ctrl + wheel over the paragraph = zoom detail in/out. Native listener with
-  // passive:false so we can preventDefault the browser's page zoom.
+  // ctrl+wheel over the paragraph = semantic zoom in/out
   useEffect(() => {
     const el = ref.current;
     if (!el || !zoomable || isHeading) return;
@@ -72,36 +79,55 @@ export default function Paragraph({
     return () => el.removeEventListener("wheel", onWheel);
   }, [zoomable, isHeading, onMore, onLess]);
 
+  const audit = hideAudit ? null : par.audit;
+  const flagged = audit === "uncertain" || audit === "failed";
+
   const cls = [
     "paragraph",
     isHeading ? "heading" : "",
     morphing ? "morphing" : "",
     dimmed ? "dimmed" : "",
     overridden ? "zoomed" : "",
-    !isHeading && par.audit === "uncertain" ? "uncertain" : "",
-    !isHeading && par.audit === "failed" ? "failed" : "",
+    !isHeading && audit === "pending" ? "developing" : "",
+    !isHeading && audit === "uncertain" ? "uncertain" : "",
+    !isHeading && audit === "failed" ? "failed" : "",
   ]
     .filter(Boolean)
     .join(" ");
 
-  const showZoom = zoomable && !isHeading;
-
   return (
     <p ref={ref} className={cls} style={{ transitionDelay: `${delayMs}ms` }}>
-      {renderHtml(par.html, invariants)}
-      {!isHeading && <AuditBadge verdict={par.audit} note={par.audit_note} />}
-      {overridden && effectiveLevel && (
-        <span className="zoom-tag">{LEVEL_LABEL[effectiveLevel]}</span>
-      )}
-      {showZoom && (
-        <span className="zoom-ctl" contentEditable={false}>
-          <button title="More detail (ctrl+scroll up)" onClick={onMore} aria-label="more detail">
-            ＋
-          </button>
-          <button title="Less detail (ctrl+scroll down)" onClick={onLess} aria-label="less detail">
-            －
-          </button>
+      {!isHeading && (
+        <span className="gutter" contentEditable={false}>
+          {overridden && effectiveLevel && (
+            <span className="zoom-tag">{LEVEL_LABEL[effectiveLevel]}</span>
+          )}
+          {audit && <AuditBadge verdict={audit} note={par.audit_note} />}
+          {zoomable && (
+            <span className="zoom-ctl">
+              <button title="More detail (ctrl+scroll up)" onClick={onMore} aria-label="more detail">
+                +
+              </button>
+              <button title="Less detail (ctrl+scroll down)" onClick={onLess} aria-label="less detail">
+                −
+              </button>
+            </span>
+          )}
         </span>
+      )}
+      {renderHtml(par.html, invariants)}
+      {flagged && originalHtml && (
+        <>
+          <button className="link see-original" onClick={() => setShowOriginal((v) => !v)}>
+            {showOriginal ? "hide original" : "see original"}
+          </button>
+          {showOriginal && (
+            <span className="original-inline">
+              <span className="label">Original — Expert</span>
+              {stripSeals(originalHtml)}
+            </span>
+          )}
+        </>
       )}
     </p>
   );

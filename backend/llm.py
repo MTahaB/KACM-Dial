@@ -13,7 +13,13 @@ from typing import Any, Optional
 
 import requests
 
-from config import LLM_TIMEOUT_S, METRICS_PATH, OLLAMA_HOST
+from config import (
+    DIFFUSION_BASE_URL,
+    DIFFUSION_MODEL,
+    LLM_TIMEOUT_S,
+    METRICS_PATH,
+    OLLAMA_HOST,
+)
 
 
 class LLMError(RuntimeError):
@@ -42,6 +48,10 @@ def _call_ollama(
         "prompt": prompt,
         "system": system,
         "stream": False,
+        # Reasoning models (e.g. Nemotron 3) route tokens into a `thinking`
+        # field and return an empty response otherwise; non-thinking models
+        # ignore the flag. The pipeline never wants reasoning traces.
+        "think": False,
         "options": {"temperature": temperature, "num_predict": max_tokens},
     }
     if json_mode:
@@ -102,6 +112,70 @@ def generate(
             continue
 
     raise LLMError(f"generate() failed for model={model!r}: {last_err}")
+
+
+def generate_diffusion(
+    system: str,
+    prompt: str,
+    *,
+    temperature: float = 0.3,
+    max_tokens: int = 512,
+    n: int = 1,
+    timeout_s: int = LLM_TIMEOUT_S,
+) -> list[str]:
+    """DiffusionGemma writer via an OpenAI-compatible endpoint (vLLM, brief 1.c).
+
+    Additive path — never touches `generate()`. Returns the `n` choice texts
+    (best-of-k selection happens in the orchestrator). One retry, then raise.
+    Metrics rows carry backend="diffusion"; tokens/s is completion_tokens over
+    wall time (the OpenAI schema has no eval_duration).
+    """
+    body = {
+        "model": DIFFUSION_MODEL,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "n": n,
+    }
+    last_err: Optional[Exception] = None
+    for attempt in range(2):
+        t0 = time.perf_counter()
+        try:
+            resp = requests.post(
+                f"{DIFFUSION_BASE_URL}/chat/completions", json=body, timeout=timeout_s
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            texts = [
+                (c.get("message") or {}).get("content") or ""
+                for c in data.get("choices", [])
+            ]
+            if not any(t.strip() for t in texts):
+                raise ValueError("empty choices from diffusion endpoint")
+
+            elapsed = time.perf_counter() - t0
+            completion = (data.get("usage") or {}).get("completion_tokens") or 0
+            _log_metric(
+                {
+                    "ts": time.time(),
+                    "model": DIFFUSION_MODEL,
+                    "backend": "diffusion",
+                    "json_mode": False,
+                    "eval_count": completion,
+                    "tokens_per_s": round(completion / elapsed, 2) if elapsed else 0.0,
+                    "wall_s": round(elapsed, 3),
+                    "n": n,
+                    "attempt": attempt,
+                }
+            )
+            return texts
+        except (requests.RequestException, json.JSONDecodeError, ValueError) as exc:
+            last_err = exc
+            continue
+    raise LLMError(f"generate_diffusion() failed for {DIFFUSION_MODEL!r}: {last_err}")
 
 
 def ping() -> bool:

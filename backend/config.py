@@ -34,3 +34,26 @@ USE_AUDIT = os.environ.get("DIAL_USE_AUDIT", "1") == "1"
 
 # Reported VRAM figure for the metrics endpoint (set at deploy time; 0 = unknown).
 VRAM_GB = float(os.environ.get("DIAL_VRAM_GB", "0"))
+
+# ---- DiffusionGemma writer (additive, behind flags — see NOTES.md) ----------
+# The Ollama pipeline stays the guaranteed default; "diffusion" switches the
+# writer to an OpenAI-compatible endpoint (vLLM serving DiffusionGemma).
+WRITER_BACKEND = os.environ.get("DIAL_WRITER_BACKEND", "ollama")  # ollama | diffusion
+DIFFUSION_BASE_URL = os.environ.get("DIAL_DIFFUSION_BASE_URL", "http://localhost:8001/v1")
+DIFFUSION_MODEL = os.environ.get("DIAL_DIFFUSION_MODEL", "google/diffusiongemma-26B-A4B-it")
+# Canvas is 256 tokens — stay at 1-2 blocks per paragraph (brief step 1.c).
+DIFFUSION_MAX_TOKENS = int(os.environ.get("DIAL_DIFFUSION_MAX_TOKENS", "512"))
+# Best-of-k: number of parallel choices requested per rewrite (n=1 disables).
+DIFFUSION_N = int(os.environ.get("DIAL_DIFFUSION_N", "1"))
+
+# ---- Invariant marker format (brief step 1.d: ⟦⟧ survival test) -------------
+# A different tokenizer may mangle the ⟦⟧ glyphs; "ascii" switches every marker
+# to [[INV:id]] across the whole pipeline. Central here so nothing hardcodes it.
+INV_STYLE = os.environ.get("DIAL_INV_STYLE", "unicode")  # unicode | ascii
+_INV_FORMATS = {"unicode": ("⟦INV:", "⟧"), "ascii": ("[[INV:", "]]")}
+INV_PREFIX, INV_SUFFIX = _INV_FORMATS.get(INV_STYLE, _INV_FORMATS["unicode"])
+
+
+def inv_token(inv_id: str) -> str:
+    """The one true way to spell a sealed-fact marker."""
+    return f"{INV_PREFIX}{inv_id}{INV_SUFFIX}"

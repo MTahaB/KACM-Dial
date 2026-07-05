@@ -1,21 +1,15 @@
-// One screen, zero navigation (SPEC §7): paste/ingest → progress ("the document
-// develops like a photo") → Reader. Talks only to the local backend; works offline.
+// One screen, zero navigation (SPEC §7): paste / upload / drop a .txt or .md →
+// the document develops in place (§3.3) → Reader. Talks only to the local
+// backend; works fully offline.
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import Reader from "./components/Reader";
-
-const SAMPLE = `# Notification de trop-perçu
-
-Madame, Monsieur,
-
-Suite au réexamen de votre dossier, la Caisse constate un trop-perçu de 1 240,50 € au titre de la période de janvier à mars 2026. En application de l'article L.553-2 du code de la sécurité sociale, cette somme doit être remboursée dans un délai de 30 jours à compter de la notification.
-
-À défaut de remboursement dans le délai imparti, la Caisse procédera au recouvrement par retenues sur vos prestations à venir, dans la limite de la quotité saisissable prévue par la réglementation en vigueur.
-
-Vous disposez d'un délai de deux mois pour contester cette décision devant la commission de recours amiable, par lettre recommandée avec accusé de réception.`;
+import { SAMPLES } from "./samples";
 
 type Phase = "ingest" | "generating" | "ready";
+
+const ACCEPTED = [".txt", ".md", ".markdown"];
 
 export default function App() {
   const [phase, setPhase] = useState<Phase>("ingest");
@@ -23,6 +17,9 @@ export default function App() {
   const [title, setTitle] = useState("");
   const [docId, setDocId] = useState<string | null>(null);
   const [progress, setProgress] = useState({ done: 0, total: 0, pct: 0 });
+  const [dragging, setDragging] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
   const pollRef = useRef<number | null>(null);
 
   async function handleIngest() {
@@ -32,6 +29,28 @@ export default function App() {
     setDocId(res.doc_id);
     setPhase("generating");
   }
+
+  const readFile = useCallback(async (file: File) => {
+    setFileError(null);
+    const name = file.name.toLowerCase();
+    if (!ACCEPTED.some((ext) => name.endsWith(ext))) {
+      setFileError(`"${file.name}" — only .txt and .md files (PDF is out of scope, on purpose).`);
+      return;
+    }
+    const content = await file.text();
+    setText(content);
+    setTitle(firstLine(content) || file.name.replace(/\.(txt|md|markdown)$/i, ""));
+  }, []);
+
+  const onDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      setDragging(false);
+      const file = e.dataTransfer.files?.[0];
+      if (file) readFile(file);
+    },
+    [readFile]
+  );
 
   // Poll /status at 500ms (no websockets — §4).
   useEffect(() => {
@@ -43,9 +62,7 @@ export default function App() {
         total: s.total_jobs,
         pct: Math.round(s.progress * 100),
       });
-      if (s.progress >= 1) {
-        setPhase("ready");
-      }
+      if (s.progress >= 1) setPhase("ready");
     };
     tick();
     pollRef.current = window.setInterval(tick, 500);
@@ -58,7 +75,8 @@ export default function App() {
     <div className="app">
       <header className="header">
         <div className="brand">
-          Dial<span>reading level is a property of your gaze</span>
+          Dial<i className="brand-dot">.</i>
+          <span>reading level is a property of your gaze</span>
         </div>
         <div className="pill">
           <span className="dot" /> local — no network
@@ -67,30 +85,72 @@ export default function App() {
 
       {phase === "ingest" && (
         <section className="ingest">
-          <textarea
-            placeholder="Paste a document (.txt / .md text)…"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-          />
+          <div
+            className={`dropzone ${dragging ? "dragover" : ""} ${text ? "has-text" : ""}`}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragging(true);
+            }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={onDrop}
+          >
+            <textarea
+              placeholder="Paste a document, or drop a .txt / .md file here…"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              aria-label="Document text"
+            />
+            {dragging && (
+              <div className="drop-hint" aria-hidden>
+                <span>⬇ drop to load</span>
+              </div>
+            )}
+          </div>
+
+          {fileError && <div className="file-error">{fileError}</div>}
+
           <div className="row">
             <button className="primary" onClick={handleIngest} disabled={!text.trim()}>
               Read at every level →
             </button>
-            <button
-              className="sample-chip"
-              onClick={() => {
-                setText(SAMPLE);
-                setTitle("Notification de trop-perçu — CAF");
-              }}
-            >
-              Load sample (FR administrative letter)
+            <button className="ghost" onClick={() => fileInput.current?.click()}>
+              📎 Open a file
             </button>
+            <input
+              ref={fileInput}
+              type="file"
+              accept={ACCEPTED.join(",")}
+              hidden
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) readFile(f);
+                e.target.value = "";
+              }}
+            />
+            <span className="row-sep" aria-hidden />
+            {SAMPLES.map((s) => (
+              <button
+                key={s.key}
+                className="sample-chip"
+                onClick={() => {
+                  setText(s.text);
+                  setTitle(s.title);
+                  setFileError(null);
+                }}
+              >
+                {s.chip}
+              </button>
+            ))}
           </div>
+
+          <p className="tagline">
+            Gemma writes. Nemotron verifies. <b>Nothing leaves this machine.</b>
+          </p>
         </section>
       )}
 
       {phase === "generating" && (
-        <section className="progress-wrap">
+        <section className="progress-wrap slim">
           <div className="progress-label">
             <span>Generating every reading level locally…</span>
             <span>
@@ -103,7 +163,15 @@ export default function App() {
         </section>
       )}
 
-      {phase === "ready" && docId && <Reader docId={docId} />}
+      {/* Photo-develop (§3.3): the reader mounts as soon as ingestion starts;
+          paragraphs develop in place as the local models finish them. */}
+      {(phase === "generating" || phase === "ready") && docId && (
+        <Reader
+          docId={docId}
+          developing={phase === "generating"}
+          initialLevel="standard"
+        />
+      )}
     </div>
   );
 }

@@ -19,14 +19,18 @@ import prompts
 from config import (
     AUDITOR_MODEL,
     AUDITOR_TEMPERATURE,
+    DIFFUSION_MAX_TOKENS,
+    DIFFUSION_N,
     USE_AUDIT,
     USE_INVARIANT_LLM,
     USE_INVARIANTS,
+    WRITER_BACKEND,
     WRITER_MAX_TOKENS,
     WRITER_MODEL,
     WRITER_TEMPERATURE,
+    inv_token,
 )
-from llm import LLMError, generate
+from llm import LLMError, generate, generate_diffusion
 
 # Chunking parameters (§5 step 1).
 MIN_PARAGRAPH_CHARS = 200
@@ -124,30 +128,58 @@ def chunk_document(text: str) -> list[tuple[str, bool]]:
     return result
 
 
-def _write(tokenized: str, level: str, language: str, corrective: str = "") -> str:
-    """One writer call on a tokenized paragraph. Raises LLMError on failure."""
+def _write(tokenized: str, level: str, language: str, corrective: str = "") -> list[str]:
+    """One writer call on a tokenized paragraph, dispatched on WRITER_BACKEND.
+
+    Returns candidate rewrites: exactly one from Ollama; up to DIFFUSION_N from
+    the diffusion endpoint (best-of-k, brief 1.c). Raises LLMError on failure.
+    """
     user = prompts.writer_user(level, tokenized, language=language) + corrective
-    return generate(
+    if WRITER_BACKEND == "diffusion":
+        choices = generate_diffusion(
+            prompts.WRITER_SYSTEM,
+            user,
+            temperature=WRITER_TEMPERATURE,
+            max_tokens=min(WRITER_MAX_TOKENS, DIFFUSION_MAX_TOKENS),
+            n=DIFFUSION_N,
+        )
+        return [c.strip() for c in choices if c.strip()]
+    out = generate(
         WRITER_MODEL,
         prompts.WRITER_SYSTEM,
         user,
         temperature=WRITER_TEMPERATURE,
         max_tokens=WRITER_MAX_TOKENS,
-    ).strip()
+    )
+    return [out.strip()]
 
 
 def _rewrite_preserving(
     tokenized: str, level: str, expected: dict[str, int], language: str
 ) -> tuple[str, bool]:
     """Rewrite, then check sealed tokens (§5 step 3). One corrective retry — the
-    "auto-regenerate once" of §1.2. Returns (rewrite_with_tokens, tokens_ok)."""
-    out = _write(tokenized, level, language)
-    bad = invariants.verify(out, expected)
-    if not bad:
-        return out, True
-    corrective = prompts.writer_correction([f"⟦INV:{i}⟧" for i in bad])
-    out = _write(tokenized, level, language, corrective)
-    return out, not invariants.verify(out, expected)
+    "auto-regenerate once" of §1.2. Returns (rewrite_with_tokens, tokens_ok).
+
+    With best-of-k candidates, token survival is the selection filter: the first
+    candidate whose sealed tokens all verify wins (the regular Nemotron audit
+    downstream still judges whichever candidate is chosen).
+    """
+    candidates = [
+        invariants.strip_unknown(c, expected) for c in _write(tokenized, level, language)
+    ]
+    for out in candidates:
+        if not invariants.verify(out, expected):
+            return out, True
+    bad = invariants.verify(candidates[0], expected)
+    corrective = prompts.writer_correction([inv_token(i) for i in bad])
+    retries = [
+        invariants.strip_unknown(c, expected)
+        for c in _write(tokenized, level, language, corrective)
+    ]
+    for out in retries:
+        if not invariants.verify(out, expected):
+            return out, True
+    return retries[0], False
 
 
 def _resolve_auditor() -> tuple[str, bool]:

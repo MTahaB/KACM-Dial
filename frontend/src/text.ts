@@ -32,3 +32,28 @@ export const LEVEL_LABEL: Record<Level, string> = {
   plain: "Plain",
   simple: "Simple",
 };
+
+// Readability tag shown under the dial rail (SPEC front: "~4 min · reading level").
+export const LEVEL_TAG: Record<Level, string> = {
+  expert: "original text",
+  standard: "educated adult",
+  plain: "plain language",
+  simple: "age-14 reading",
+};
+
+// Reading-time estimate (~200 wpm). Strips <seal> markup before counting.
+export function readingSeconds(paragraphs: { html: string }[]): number {
+  const words = paragraphs
+    .map((p) => p.html.replace(/<[^>]+>/g, " "))
+    .join(" ")
+    .split(/\s+/)
+    .filter(Boolean).length;
+  return Math.round((words / 200) * 60);
+}
+
+export function formatReadingTime(sec: number): string {
+  if (sec < 60) return `${sec} s`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return s >= 30 ? `${m} min 30` : `${m} min`;
+}
