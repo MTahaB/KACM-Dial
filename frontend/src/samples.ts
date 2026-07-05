@@ -11,7 +11,7 @@ export interface Sample {
 export const SAMPLES: Sample[] = [
   {
     key: "caf",
-    chip: "🇫🇷 Lettre CAF",
+    chip: "French benefits letter",
     title: "Notification de trop-perçu — CAF",
     text: `# Notification de trop-perçu
 
@@ -27,7 +27,7 @@ Nous vous prions d'agréer, Madame, Monsieur, l'expression de nos salutations di
   },
   {
     key: "bail",
-    chip: "📄 Contrat de location",
+    chip: "Rental contract (FR)",
     title: "Extrait de contrat de location",
     text: `# Extrait de contrat de location
 
@@ -41,7 +41,7 @@ Un dépôt de garantie équivalent à un mois de loyer hors charges, soit 850 �
   },
   {
     key: "physics",
-    chip: "🧲 Physics course (EN)",
+    chip: "Physics course (EN)",
     title: "Newton's Second Law",
     text: `# Newton's Second Law
 

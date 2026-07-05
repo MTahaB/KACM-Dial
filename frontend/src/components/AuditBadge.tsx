@@ -1,22 +1,16 @@
-// Audit state, rendered in the paragraph's left gutter (SPEC front).
-// Trust is silent by default: the faithful check only appears on paragraph
-// hover. Doubt is never silent: uncertain / violation marks stay visible,
-// with the auditor's one-sentence reason in a tooltip. No modals, ever.
+// Audit indicator in the paragraph gutter. Trust is silent by default: the
+// faithful check shows on paragraph hover only. Doubt is never silent: the
+// uncertain / violation mark stays visible (the reason is drawn as a margin
+// gloss in the paragraph body, see Paragraph.tsx). No tooltips, no modals.
 
 import type { AuditVerdict } from "../api";
 
-export default function AuditBadge({
-  verdict,
-  note,
-}: {
-  verdict: AuditVerdict;
-  note: string | null;
-}) {
+export default function AuditBadge({ verdict }: { verdict: AuditVerdict }) {
   if (verdict === "pending") return null;
 
   if (verdict === "faithful") {
     return (
-      <span className="gutter-check" aria-label="fidelity check passed" title="Fidelity check: faithful">
+      <span className="gutter-check" aria-label="fidelity check passed" title="Fidelity: faithful">
         ✓
       </span>
     );
@@ -24,13 +18,12 @@ export default function AuditBadge({
 
   const failed = verdict === "failed";
   return (
-    <span className={`tip-anchor gutter-mark ${failed ? "failed" : "uncertain"}`} tabIndex={0}>
+    <span
+      className={`gutter-mark ${failed ? "failed" : "uncertain"}`}
+      aria-label={failed ? "sealed fact altered" : "uncertain passage"}
+      title={failed ? "Sealed fact altered" : "Uncertain — see margin note"}
+    >
       !
-      <span className="tip" role="tooltip">
-        {failed
-          ? note ?? "A sealed fact was altered or missing after retry — original text shown for safety."
-          : note ?? "The auditor is uncertain — verify this passage yourself."}
-      </span>
     </span>
   );
 }

@@ -1,33 +1,43 @@
-// Split "two readers" view (SPEC §1.1 / §7): the same document side-by-side at
-// two different levels, each column with its own dial, scroll-synced so the two
-// readings stay aligned. The pitch's parent/teen moment.
+// Split view — the same document at two levels, 50/50, 1px divider. Each
+// column has its own mini horizontal dial. Scroll is synchronized by paragraph
+// id: the paragraph at the top of one viewport aligns its twin in the other.
+// Audit states show only on the more simplified column (doubt belongs to the
+// rewrite, not the source).
 
-import { useRef, useState, type RefObject } from "react";
-import type { Level } from "../api";
+import { useRef, useState } from "react";
+import { LEVELS, type Level } from "../api";
 import { useDoc } from "../hooks";
 import { displayHtml, isHeading } from "../text";
 import Dial from "./Dial";
 import Paragraph from "./Paragraph";
 
-export default function SplitView({
-  docId,
-  onExit,
-}: {
-  docId: string;
-  onExit: () => void;
-}) {
+export default function SplitView({ docId }: { docId: string }) {
+  const [levels, setLevels] = useState<[Level, Level]>(["expert", "simple"]);
   const leftRef = useRef<HTMLDivElement>(null);
   const rightRef = useRef<HTMLDivElement>(null);
   const syncing = useRef(false);
 
-  // Proportional scroll sync between the two columns (paragraph-aligned in
-  // practice since both render the same paragraphs at the same order).
+  // audit shows only on the column with the more simplified level
+  const simplerSide = LEVELS.indexOf(levels[0]) >= LEVELS.indexOf(levels[1]) ? 0 : 1;
+
   const sync = (from: HTMLDivElement | null, to: HTMLDivElement | null) => {
     if (!from || !to || syncing.current) return;
     syncing.current = true;
-    const max = from.scrollHeight - from.clientHeight;
-    const ratio = max > 0 ? from.scrollTop / max : 0;
-    to.scrollTop = ratio * (to.scrollHeight - to.clientHeight);
+    const fromRect = from.getBoundingClientRect();
+    const wrappers = Array.from(from.querySelectorAll<HTMLElement>("[data-par-id]"));
+    const cur = wrappers.find(
+      (w) => w.getBoundingClientRect().bottom > fromRect.top + 4
+    );
+    if (cur) {
+      const id = cur.dataset.parId!;
+      const twin = to.querySelector<HTMLElement>(`[data-par-id="${id}"]`);
+      if (twin) {
+        const curOffset = cur.getBoundingClientRect().top - fromRect.top;
+        const toRect = to.getBoundingClientRect();
+        const twinOffset = twin.getBoundingClientRect().top - toRect.top;
+        to.scrollTop += twinOffset - curOffset;
+      }
+    }
     requestAnimationFrame(() => {
       syncing.current = false;
     });
@@ -35,25 +45,24 @@ export default function SplitView({
 
   return (
     <div className="split">
-      <div className="split-header">
-        <h1 className="doc-title">Two readers</h1>
-        <button className="split-toggle" onClick={onExit}>
-          ✕ Exit split
-        </button>
-      </div>
       <div className="split-cols">
-        <Column
-          docId={docId}
-          initial="expert"
-          scrollRef={leftRef}
-          onScroll={() => sync(leftRef.current, rightRef.current)}
-        />
-        <Column
-          docId={docId}
-          initial="simple"
-          scrollRef={rightRef}
-          onScroll={() => sync(rightRef.current, leftRef.current)}
-        />
+        {([0, 1] as const).map((side) => (
+          <Column
+            key={side}
+            docId={docId}
+            level={levels[side]}
+            onLevel={(l) =>
+              setLevels((prev) => (side === 0 ? [l, prev[1]] : [prev[0], l]))
+            }
+            hideAudit={side !== simplerSide}
+            scrollRef={side === 0 ? leftRef : rightRef}
+            onScroll={() =>
+              side === 0
+                ? sync(leftRef.current, rightRef.current)
+                : sync(rightRef.current, leftRef.current)
+            }
+          />
+        ))}
       </div>
     </div>
   );
@@ -61,35 +70,37 @@ export default function SplitView({
 
 function Column({
   docId,
-  initial,
+  level,
+  onLevel,
+  hideAudit,
   scrollRef,
   onScroll,
 }: {
   docId: string;
-  initial: Level;
-  scrollRef: RefObject<HTMLDivElement>;
+  level: Level;
+  onLevel: (l: Level) => void;
+  hideAudit: boolean;
+  scrollRef: React.RefObject<HTMLDivElement>;
   onScroll: () => void;
 }) {
-  const [level, setLevel] = useState(initial);
   const doc = useDoc(docId, level);
   return (
     <div className="split-col">
-      <Dial level={level} onChange={setLevel} />
+      <Dial level={level} onChange={onLevel} />
       <div className="split-scroll" ref={scrollRef} onScroll={onScroll}>
-        {doc ? (
+        {doc &&
           doc.paragraphs.map((p) => (
-            <Paragraph
-              key={p.id}
-              par={{ ...p, html: displayHtml(p.html) }}
-              invariants={doc.invariants}
-              isHeading={isHeading(p.html)}
-              morphing={false}
-              delayMs={0}
-            />
-          ))
-        ) : (
-          <div className="progress-label">Loading…</div>
-        )}
+            <div key={p.id} data-par-id={p.id}>
+              <Paragraph
+                par={{ ...p, html: displayHtml(p.html) }}
+                invariants={doc.invariants}
+                isHeading={isHeading(p.html)}
+                morphing={false}
+                delayMs={0}
+                hideAudit={hideAudit}
+              />
+            </div>
+          ))}
       </div>
     </div>
   );

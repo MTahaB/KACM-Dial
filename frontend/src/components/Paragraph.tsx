@@ -1,7 +1,9 @@
-// One paragraph of the document. The text is king; all affordances live in the
-// left gutter (audit state, semantic-zoom controls, per-paragraph level tag)
-// and appear on hover. Flagged passages offer an inline "see original"
-// comparison — never a modal.
+// One paragraph. The text is king; affordances live in the left gutter and
+// appear on hover. Sealed facts render as brass plates. Flagged passages carry
+// a permanent left border and, on hover, a hand-drawn margin gloss with the
+// auditor's reason (a brace that draws itself, then the italic note) plus an
+// inline "see original" comparison. Depth-of-field blur (set by the Reader
+// during semantic zoom) is applied inline.
 
 import { useEffect, useRef, useState } from "react";
 import type { Invariant, Level, ParagraphOut } from "../api";
@@ -15,17 +17,16 @@ interface Props {
   isHeading: boolean;
   morphing: boolean;
   delayMs: number;
-  originalHtml?: string; // expert text, for the inline comparison on flagged passages
-  hideAudit?: boolean; // split view: audit shows only on the more simplified column
+  originalHtml?: string;
+  hideAudit?: boolean;
+  blurPx?: number; // depth-of-field blur when another paragraph is focused
   zoomable?: boolean;
   overridden?: boolean;
   effectiveLevel?: Level;
-  dimmed?: boolean;
   onMore?: () => void;
   onLess?: () => void;
 }
 
-// Split html on <seal>…</seal> markup and interleave SealedChip components.
 function renderHtml(html: string, invariants: Invariant[]) {
   const byId = new Map(invariants.map((i) => [i.id, i.text]));
   const parts: Array<string | JSX.Element> = [];
@@ -55,17 +56,16 @@ export default function Paragraph({
   delayMs,
   originalHtml,
   hideAudit = false,
+  blurPx = 0,
   zoomable = false,
   overridden = false,
   effectiveLevel,
-  dimmed = false,
   onMore,
   onLess,
 }: Props) {
   const ref = useRef<HTMLParagraphElement>(null);
   const [showOriginal, setShowOriginal] = useState(false);
 
-  // ctrl+wheel over the paragraph = semantic zoom in/out
   useEffect(() => {
     const el = ref.current;
     if (!el || !zoomable || isHeading) return;
@@ -86,8 +86,9 @@ export default function Paragraph({
     "paragraph",
     isHeading ? "heading" : "",
     morphing ? "morphing" : "",
-    dimmed ? "dimmed" : "",
+    blurPx > 0 ? "dof" : "",
     overridden ? "zoomed" : "",
+    !isHeading && audit === "faithful" ? "faithful" : "",
     !isHeading && audit === "pending" ? "developing" : "",
     !isHeading && audit === "uncertain" ? "uncertain" : "",
     !isHeading && audit === "failed" ? "failed" : "",
@@ -96,13 +97,17 @@ export default function Paragraph({
     .join(" ");
 
   return (
-    <p ref={ref} className={cls} style={{ transitionDelay: `${delayMs}ms` }}>
+    <p
+      ref={ref}
+      className={cls}
+      style={{ transitionDelay: `${delayMs}ms`, filter: blurPx ? `blur(${blurPx}px)` : undefined }}
+    >
       {!isHeading && (
         <span className="gutter" contentEditable={false}>
           {overridden && effectiveLevel && (
-            <span className="zoom-tag">{LEVEL_LABEL[effectiveLevel]}</span>
+            <span className="zoom-tag">{LEVEL_LABEL[effectiveLevel].toUpperCase()}</span>
           )}
-          {audit && <AuditBadge verdict={audit} note={par.audit_note} />}
+          {audit && <AuditBadge verdict={audit} />}
           {zoomable && (
             <span className="zoom-ctl">
               <button title="More detail (ctrl+scroll up)" onClick={onMore} aria-label="more detail">
@@ -116,6 +121,14 @@ export default function Paragraph({
         </span>
       )}
       {renderHtml(par.html, invariants)}
+      {flagged && par.audit_note && (
+        <span className={`gloss ${audit}`} contentEditable={false}>
+          <svg className="gloss-brace" viewBox="0 0 12 22" aria-hidden focusable="false">
+            <path d="M9,1 Q3,1 3,6 Q3,11 1,11 Q3,11 3,16 Q3,21 9,21" />
+          </svg>
+          <span className="gloss-text">{par.audit_note}</span>
+        </span>
+      )}
       {flagged && originalHtml && (
         <>
           <button className="link see-original" onClick={() => setShowOriginal((v) => !v)}>

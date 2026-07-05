@@ -1,14 +1,8 @@
-// Reader view (SPEC §7) — the demo heart.
-//
-// - All four levels are prefetched into a client cache once generation is done,
-//   so dial changes and scrubbing are zero-latency swaps (§3.3 made visible).
-// - Sealed chips are FLIP-animated across level changes: the prose dissolves
-//   and rewrites itself, but the facts physically glide to their new position,
-//   unchanged. The trust contract, visible to the naked eye.
-// - Photo-develop mode (§3.3): while the backend generates, pending paragraphs
-//   render as a sepia ghost of the original and "develop" into their rewrite
-//   as each one lands, the audit check popping in after.
-// - Reading-time meter: the Impact story in one glance (4 min → 1 min 30).
+// Reader view — the document is a paper print centered on the camera body; the
+// aperture dial is anchored right. All four levels are prefetched so dial moves
+// are zero-latency swaps. Sealed plates FLIP across level changes and pulse as
+// the text reworks around them. Semantic zoom "pulls focus": the chosen
+// paragraph stays sharp while the others blur by distance (depth of field).
 
 import {
   useCallback,
@@ -26,24 +20,15 @@ import {
   moreDetail,
   readingSeconds,
 } from "../text";
-import Dial from "./Dial";
+import ApertureDial from "./ApertureDial";
+import IrisLoader from "./IrisLoader";
 import Paragraph from "./Paragraph";
 import SplitView from "./SplitView";
 
 const CASCADE_STEP_MS = 30;
-const FADE_OUT_MS = 90; // short: the swap itself is instant, the fade is a beat
-const FOCUS_MS = 1000;
+const FADE_OUT_MS = 90;
 const FLIP_MS = 450;
-const DEVELOP_POLL_MS = 1500;
-
-// Chromatic identity per level: graphite → forest → amber → slate. Set on the
-// document root so the masthead dot, tuner needle and ribbon all follow the dial.
-const LEVEL_ACCENT: Record<Level, string> = {
-  expert: "#4a4238",
-  standard: "#3a5a40",
-  plain: "#b07d3f",
-  simple: "#46708f",
-};
+const DEVELOP_POLL_MS = 2000;
 
 type ChipSnap = { key: string; text: string; rect: DOMRect };
 
@@ -63,62 +48,77 @@ function snapshotChips(root: HTMLElement | null): ChipSnap[] {
   );
 }
 
-// Imperative overlay: clone chips at their old positions, glide them to the new
-// ones, remove. The real chips hide underneath (.chips-flying) meanwhile.
 function flyChips(root: HTMLElement, before: ChipSnap[]) {
-  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const after = snapshotChips(root);
-  if (!before.length || !after.length) return;
   const target = new Map(after.map((c) => [c.key, c]));
 
-  const layer = document.createElement("div");
-  layer.className = "fly-layer";
-  document.body.appendChild(layer);
-  root.classList.add("chips-flying");
+  if (!reduce && before.length && after.length) {
+    const layer = document.createElement("div");
+    layer.className = "fly-layer";
+    document.body.appendChild(layer);
+    root.classList.add("chips-flying");
 
-  for (const old of before) {
-    const to = target.get(old.key);
-    const el = document.createElement("span");
-    el.className = "seal seal-flyer";
-    el.textContent = old.text;
-    el.style.left = `${old.rect.left}px`;
-    el.style.top = `${old.rect.top}px`;
-    layer.appendChild(el);
-    requestAnimationFrame(() => {
-      if (to) {
-        el.style.transform = `translate(${to.rect.left - old.rect.left}px, ${
-          to.rect.top - old.rect.top
-        }px)`;
-      } else {
-        el.style.opacity = "0";
-      }
-    });
+    for (const old of before) {
+      const to = target.get(old.key);
+      const el = document.createElement("span");
+      el.className = "seal seal-flyer";
+      el.textContent = old.text;
+      el.style.left = `${old.rect.left}px`;
+      el.style.top = `${old.rect.top}px`;
+      layer.appendChild(el);
+      requestAnimationFrame(() => {
+        if (to) {
+          el.style.transform = `translate(${to.rect.left - old.rect.left}px, ${
+            to.rect.top - old.rect.top
+          }px)`;
+        } else {
+          el.style.opacity = "0";
+        }
+      });
+    }
+    window.setTimeout(() => {
+      layer.remove();
+      root.classList.remove("chips-flying");
+      pulseSeals(root);
+    }, FLIP_MS + 60);
+  } else {
+    pulseSeals(root);
   }
-  window.setTimeout(() => {
-    layer.remove();
-    root.classList.remove("chips-flying");
-  }, FLIP_MS + 60);
+}
+
+// the plates vibrate once as the material settles around them
+function pulseSeals(root: HTMLElement) {
+  root.querySelectorAll<HTMLElement>(".seal").forEach((el) => {
+    el.classList.remove("pulse");
+    void el.offsetWidth;
+    el.classList.add("pulse");
+    window.setTimeout(() => el.classList.remove("pulse"), 200);
+  });
+}
+
+function isComplete(d: DocResponse | undefined): boolean {
+  return !!d && d.paragraphs.every((p) => p.audit !== "pending");
 }
 
 export default function Reader({
   docId,
   developing = false,
+  split = false,
   initialLevel = "expert",
 }: {
   docId: string;
   developing?: boolean;
+  split?: boolean;
   initialLevel?: Level;
 }) {
   const [level, setLevel] = useState<Level>(initialLevel);
   const [docs, setDocs] = useState<Partial<Record<Level, DocResponse>>>({});
   const [morphing, setMorphing] = useState(false);
-  const [split, setSplit] = useState(false);
 
-  // semantic zoom (Tier 3) — unchanged
   const [overrides, setOverrides] = useState<Record<number, Level>>({});
   const [parCache, setParCache] = useState<Record<string, ParagraphOut>>({});
   const [focusedId, setFocusedId] = useState<number | null>(null);
-  const focusTimer = useRef<number | null>(null);
 
   const rootRef = useRef<HTMLDivElement>(null);
   const pendingFlip = useRef<ChipSnap[] | null>(null);
@@ -138,43 +138,30 @@ export default function Reader({
     if (!docs[level]) load(level);
   }, [level, docs, load]);
 
-  // Chromatic ambiance follows the dial (and resets on unmount).
-  useEffect(() => {
-    document.documentElement.style.setProperty("--level-accent", LEVEL_ACCENT[level]);
-    return () => {
-      document.documentElement.style.removeProperty("--level-accent");
-    };
-  }, [level]);
-
-  // Photo-develop: poll the current level while the backend generates; each
-  // poll swaps ghost paragraphs for freshly developed ones.
   useEffect(() => {
     if (!developing) return;
-    const t = window.setInterval(() => load(level), DEVELOP_POLL_MS);
+    const tick = () => {
+      for (const l of LEVELS) load(l);
+    };
+    tick();
+    const t = window.setInterval(tick, DEVELOP_POLL_MS);
     return () => window.clearInterval(t);
-  }, [developing, level, load]);
+  }, [developing, load]);
 
-  // Once generation completes, prefetch every level → the dial becomes a
-  // zero-latency scrubber over the SQLite cache.
   useEffect(() => {
     if (developing) return;
-    load(level); // refresh once more so the last pending paragraphs resolve
-    for (const l of LEVELS) {
-      if (!docs[l]) load(l);
-    }
+    for (const l of LEVELS) load(l);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [developing, docId]);
 
   const changeLevel = useCallback(
     (lvl: Level) => {
       if (lvl === level) return;
-      // FLIP: capture chip positions while the old DOM is still up. During a
-      // rapid scrub, keep the earliest snapshot so chips fly one clean arc.
       if (!pendingFlip.current) {
         pendingFlip.current = snapshotChips(rootRef.current);
       }
       setOverrides({});
-      setFocusedId(null);
+      setFocusedId(null); // dial reset clears every local zoom + the depth of field
       setMorphing(true);
       if (morphTimer.current) window.clearTimeout(morphTimer.current);
       morphTimer.current = window.setTimeout(() => {
@@ -185,34 +172,21 @@ export default function Reader({
     [level]
   );
 
-  // After the new level paints, launch the chip flight. Typography snaps
-  // (no font-size transition) during the flight so the measured landing
-  // positions are final — the cascade fade masks the snap.
   useLayoutEffect(() => {
     if (!morphing && pendingFlip.current && rootRef.current) {
-      const root = rootRef.current;
       const before = pendingFlip.current;
       pendingFlip.current = null;
-      root.classList.add("type-snap");
-      void root.offsetWidth; // reflow: typography lands before we measure
-      flyChips(root, before);
-      window.setTimeout(() => root.classList.remove("type-snap"), FLIP_MS + 80);
+      flyChips(rootRef.current, before);
     }
   }, [level, morphing]);
 
-  const focus = useCallback((id: number) => {
-    setFocusedId(id);
-    if (focusTimer.current) window.clearTimeout(focusTimer.current);
-    focusTimer.current = window.setTimeout(() => setFocusedId(null), FOCUS_MS);
-  }, []);
-
   const zoom = useCallback(
     (parId: number, next: Level) => {
-      focus(parId);
       setOverrides((prev) => {
         const copy = { ...prev };
         if (next === level) delete copy[parId];
         else copy[parId] = next;
+        setFocusedId(Object.keys(copy).length ? parId : null);
         return copy;
       });
       if (next !== level) {
@@ -224,74 +198,67 @@ export default function Reader({
         }
       }
     },
-    [docId, level, parCache, focus]
+    [docId, level, parCache]
   );
 
   if (split) {
-    return <SplitView docId={docId} onExit={() => setSplit(false)} />;
+    return <SplitView docId={docId} />;
   }
 
-  if (!doc) return <div className="progress-label">Loading…</div>;
+  if (!doc) return null;
 
-  const expertDoc = docs.expert;
-  const seconds = readingSeconds(doc.paragraphs);
-  const expertSeconds = expertDoc ? readingSeconds(expertDoc.paragraphs) : null;
-  const delta =
-    expertSeconds && expertSeconds > 0 && level !== "expert"
-      ? Math.round((1 - seconds / expertSeconds) * 100)
-      : null;
+  const complete = Object.fromEntries(
+    LEVELS.map((l) => [l, l === "expert" ? true : isComplete(docs[l])])
+  ) as Record<Level, boolean>;
 
-  // first body paragraph gets the editorial drop cap
-  const firstBodyId = doc.paragraphs.find((p) => !isHeading(p.html))?.id;
+  const expertById = new Map(
+    (docs.expert?.paragraphs ?? []).map((p) => [p.id, p.html])
+  );
+
+  const meter = `~${formatReadingTime(readingSeconds(doc.paragraphs))}`;
+  const focusedIndex =
+    focusedId === null ? -1 : doc.paragraphs.findIndex((p) => p.id === focusedId);
 
   return (
-    <div ref={rootRef} className="reader" data-level={level}>
-      <div className="level-ribbon" aria-hidden />
-      <div className="toolbar">
-        <Dial level={level} onChange={changeLevel} />
-        <div className="toolbar-side">
-          <div className="read-meter" aria-label="estimated reading time">
-            <span className="read-time">⏱ {formatReadingTime(seconds)}</span>
-            {delta !== null && delta > 0 && (
-              <span className="read-delta">−{delta}%</span>
-            )}
+    <div ref={rootRef} className="reader">
+      <ApertureDial level={level} onChange={changeLevel} complete={complete} meter={meter} />
+      <div className="sheet">
+        {developing && (
+          <div className="develop-note">
+            <IrisLoader /> generating locally — levels light up on the dial as
+            they complete
           </div>
-          <button className="split-toggle" onClick={() => setSplit(true)}>
-            ⇋ Split view
-          </button>
-        </div>
+        )}
+        <h1 className="doc-title">{doc.title}</h1>
+        {doc.paragraphs.map((p, i) => {
+          const heading = isHeading(p.html);
+          const ov = overrides[p.id];
+          const effLevel = ov ?? level;
+          const data = ov ? parCache[`${p.id}:${ov}`] ?? p : p;
+          const blurPx =
+            focusedIndex >= 0 && i !== focusedIndex
+              ? Math.min(4, Math.abs(i - focusedIndex))
+              : 0;
+          return (
+            <Paragraph
+              key={p.id}
+              par={{ ...data, html: displayHtml(data.html) }}
+              invariants={doc.invariants}
+              isHeading={heading}
+              morphing={morphing}
+              delayMs={morphing ? 0 : i * CASCADE_STEP_MS}
+              originalHtml={displayHtml(expertById.get(p.id) ?? "")}
+              blurPx={blurPx}
+              zoomable={!developing}
+              overridden={!!ov}
+              effectiveLevel={effLevel}
+              onMore={() => zoom(p.id, moreDetail(effLevel))}
+              onLess={() => zoom(p.id, lessDetail(effLevel))}
+            />
+          );
+        })}
+        <MetricsFooter docId={docId} />
       </div>
-      {developing && (
-        <div className="develop-note">
-          <span className="develop-dot" /> generating locally — the document is
-          developing…
-        </div>
-      )}
-      <h1 className="doc-title">{doc.title}</h1>
-      {doc.paragraphs.map((p, i) => {
-        const heading = isHeading(p.html);
-        const ov = overrides[p.id];
-        const effLevel = ov ?? level;
-        const data = ov ? parCache[`${p.id}:${ov}`] ?? p : p;
-        return (
-          <Paragraph
-            key={p.id}
-            par={{ ...data, html: displayHtml(data.html) }}
-            invariants={doc.invariants}
-            isHeading={heading}
-            lede={p.id === firstBodyId}
-            morphing={morphing}
-            delayMs={morphing ? 0 : i * CASCADE_STEP_MS}
-            zoomable={!developing}
-            overridden={!!ov}
-            effectiveLevel={effLevel}
-            dimmed={focusedId !== null && focusedId !== p.id}
-            onMore={() => zoom(p.id, moreDetail(effLevel))}
-            onLess={() => zoom(p.id, lessDetail(effLevel))}
-          />
-        );
-      })}
-      <MetricsFooter docId={docId} />
     </div>
   );
 }
@@ -311,16 +278,11 @@ function MetricsFooter({ docId }: { docId: string }) {
         Auditor <b>{m.model_auditor}</b>
       </span>
       <span>
-        <b>{m.tokens_per_s_avg}</b> tok/s
+        <b>{m.tokens_per_s_avg}</b> tokens/s
       </span>
       <span>
         <b>{m.n_rewrites}</b> rewrites
       </span>
-      {m.n_uncertain > 0 && (
-        <span>
-          <b>{m.n_uncertain}</b> flagged
-        </span>
-      )}
     </div>
   );
 }

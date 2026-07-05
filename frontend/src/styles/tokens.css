@@ -1,0 +1,66 @@
+/* Dial — design tokens. "Optical instrument": camera body + aperture ring + film.
+   The only source of truth for colour, type, spacing, motion. Nothing hardcoded
+   elsewhere. This layer is pure presentation — no business logic depends on it. */
+
+:root {
+  /* Matter */
+  --housing: #1c1b19; /* camera body, app background */
+  --housing-panel: #2a2825; /* dial rail, header */
+  --housing-line: #3a372f; /* separators, fine engravings */
+  --paper: #f3efe6; /* the film / the paper */
+  --paper-shadow: rgba(10, 9, 7, 0.35);
+  --ink: #211f1b; /* document text */
+  --ink-soft: #6e6a60; /* secondary UI text on light */
+  --on-housing: #c9c4b8; /* UI text on dark */
+  --on-housing-dim: #8a8578;
+
+  /* Brass */
+  --brass: #ab8b4e;
+  --brass-bright: #c9a667;
+  --brass-dim: #7c6539;
+
+  /* States = oxidation of the metal */
+  --faithful: #4c7a52; /* verdigris */
+  --faithful-bg: rgba(76, 122, 82, 0.1);
+  --uncertain: #b5502e; /* rust oxide */
+  --uncertain-bg: rgba(181, 80, 46, 0.12);
+  --violation: #8c2f26;
+  --violation-bg: rgba(140, 47, 38, 0.14);
+
+  /* Type — Fraunces/Newsreader/JetBrains Mono load from /public/fonts if present,
+     otherwise these fall back to system serifs and mono (see fonts note in README). */
+  --font-display: "Fraunces", "Iowan Old Style", Georgia, serif;
+  --font-body: "Newsreader", "Source Serif 4", Georgia, serif;
+  --font-mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, "SFMono-Regular",
+    Consolas, monospace;
+
+  /* Scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+  --radius-sm: 4px; /* brass plates */
+  --radius-md: 8px; /* cards */
+  --radius-full: 999px;
+
+  /* Motion — one signature everywhere */
+  --ease-instrument: cubic-bezier(0.22, 0.68, 0.28, 1.02); /* slight elastic overshoot */
+  --dur-fast: 120ms;
+  --dur-base: 240ms;
+  --dur-slow: 420ms;
+
+  /* brushed-brass surface, reused by the dial cylinders */
+  --brushed: repeating-linear-gradient(
+    90deg,
+    var(--brass-dim) 0,
+    var(--brass) 1.5px,
+    var(--brass-bright) 2px,
+    var(--brass) 2.5px,
+    var(--brass-dim) 3px
+  );
+}

@@ -1,10 +1,14 @@
-// One screen, zero navigation (SPEC §7): paste / upload / drop a .txt or .md →
-// the document develops in place (§3.3) → Reader. Talks only to the local
-// backend; works fully offline.
+// One screen, zero navigation. Fixed housing header (wordmark, document title,
+// live locality proof, split toggle, trust report). The ingest screen is the
+// instrument at rest; on load, the document is readable immediately at Expert
+// while the other levels develop and the dial's detents light up. No blocking
+// wait.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import Reader from "./components/Reader";
+import TrustReport from "./components/TrustReport";
+import { onOutgoingChange, outgoingRequests } from "./networkProof";
 import { SAMPLES } from "./samples";
 
 type Phase = "ingest" | "generating" | "ready";
@@ -16,15 +20,23 @@ export default function App() {
   const [text, setText] = useState("");
   const [title, setTitle] = useState("");
   const [docId, setDocId] = useState<string | null>(null);
-  const [progress, setProgress] = useState({ done: 0, total: 0, pct: 0 });
+  const [progressPct, setProgressPct] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
+  const [split, setSplit] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [outgoing, setOutgoing] = useState(outgoingRequests());
   const fileInput = useRef<HTMLInputElement>(null);
-  const pollRef = useRef<number | null>(null);
+  const genT0 = useRef<number | null>(null);
+  const [durationS, setDurationS] = useState<number | null>(null);
+
+  useEffect(() => onOutgoingChange(setOutgoing), []);
 
   async function handleIngest() {
     if (!text.trim()) return;
     const t = title.trim() || firstLine(text);
+    setTitle(t);
+    genT0.current = Date.now();
     const res = await api.ingest(text, t);
     setDocId(res.doc_id);
     setPhase("generating");
@@ -52,124 +64,139 @@ export default function App() {
     [readFile]
   );
 
-  // Poll /status at 500ms (no websockets — §4).
   useEffect(() => {
     if (phase !== "generating" || !docId) return;
     const tick = async () => {
       const s = await api.status(docId);
-      setProgress({
-        done: s.paragraphs_done,
-        total: s.total_jobs,
-        pct: Math.round(s.progress * 100),
-      });
-      if (s.progress >= 1) setPhase("ready");
+      setProgressPct(Math.round(s.progress * 100));
+      if (s.progress >= 1) {
+        if (genT0.current) setDurationS((Date.now() - genT0.current) / 1000);
+        setPhase("ready");
+      }
     };
     tick();
-    pollRef.current = window.setInterval(tick, 500);
-    return () => {
-      if (pollRef.current) window.clearInterval(pollRef.current);
-    };
+    const t = window.setInterval(tick, 500);
+    return () => window.clearInterval(t);
   }, [phase, docId]);
 
+  const reading = phase === "generating" || phase === "ready";
+
   return (
-    <div className="app">
+    <div>
       <header className="header">
-        <div className="brand">
-          Dial<i className="brand-dot">.</i>
-          <span>reading level is a property of your gaze</span>
+        <div className="wordmark" aria-label="Dial">
+          <span className="lozenge" aria-hidden /> DIAL
         </div>
-        <div className="pill">
-          <span className="dot" /> local — no network
+        {reading && <div className="doc-name">{title}</div>}
+        <div className="header-actions">
+          <span
+            className={`pill-local ${outgoing > 0 ? "breached" : ""}`}
+            title="Live count of network requests leaving this machine"
+          >
+            <span className="dot" /> local · {outgoing} outgoing
+          </span>
+          {reading && docId && (
+            <>
+              <button onClick={() => setSplit((v) => !v)} aria-pressed={split}>
+                {split ? "Single view" : "Split view"}
+              </button>
+              <button onClick={() => setReportOpen(true)}>Trust report</button>
+            </>
+          )}
         </div>
       </header>
 
-      {phase === "ingest" && (
-        <section className="ingest">
-          <div
-            className={`dropzone ${dragging ? "dragover" : ""} ${text ? "has-text" : ""}`}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragging(true);
-            }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={onDrop}
-          >
-            <textarea
-              placeholder="Paste a document, or drop a .txt / .md file here…"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              aria-label="Document text"
-            />
-            {dragging && (
-              <div className="drop-hint" aria-hidden>
-                <span>⬇ drop to load</span>
-              </div>
-            )}
-          </div>
-
-          {fileError && <div className="file-error">{fileError}</div>}
-
-          <div className="row">
-            <button className="primary" onClick={handleIngest} disabled={!text.trim()}>
-              Read at every level →
-            </button>
-            <button className="ghost" onClick={() => fileInput.current?.click()}>
-              📎 Open a file
-            </button>
-            <input
-              ref={fileInput}
-              type="file"
-              accept={ACCEPTED.join(",")}
-              hidden
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) readFile(f);
-                e.target.value = "";
-              }}
-            />
-            <span className="row-sep" aria-hidden />
-            {SAMPLES.map((s) => (
-              <button
-                key={s.key}
-                className="sample-chip"
-                onClick={() => {
-                  setText(s.text);
-                  setTitle(s.title);
-                  setFileError(null);
-                }}
-              >
-                {s.chip}
-              </button>
-            ))}
-          </div>
-
-          <p className="tagline">
-            Gemma writes. Nemotron verifies. <b>Nothing leaves this machine.</b>
-          </p>
-        </section>
-      )}
-
       {phase === "generating" && (
-        <section className="progress-wrap slim">
-          <div className="progress-label">
-            <span>Generating every reading level locally…</span>
-            <span>
-              {progress.done} / {progress.total}
-            </span>
-          </div>
-          <div className="progress-track">
-            <div className="progress-bar" style={{ width: `${progress.pct}%` }} />
-          </div>
-        </section>
+        <div className="gen-progress" aria-label="generation progress">
+          <div className="bar" style={{ width: `${progressPct}%` }} />
+        </div>
       )}
 
-      {/* Photo-develop (§3.3): the reader mounts as soon as ingestion starts;
-          paragraphs develop in place as the local models finish them. */}
-      {(phase === "generating" || phase === "ready") && docId && (
-        <Reader
+      <main className="main">
+        {phase === "ingest" && (
+          <section className="ingest">
+            <div
+              className={`ingest-frame ${dragging ? "dragover" : ""}`}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragging(true);
+              }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={onDrop}
+            >
+              <div className="ingest-lead">
+                Every document has a depth of field. Set yours.
+              </div>
+              <textarea
+                placeholder="Paste your document…"
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                aria-label="Document text"
+              />
+              <div className="ingest-actions">
+                <button className="primary" onClick={handleIngest} disabled={!text.trim()}>
+                  Read with Dial
+                </button>
+                <button onClick={() => fileInput.current?.click()}>Open a file</button>
+                <input
+                  ref={fileInput}
+                  type="file"
+                  accept={ACCEPTED.join(",")}
+                  hidden
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) readFile(f);
+                    e.target.value = "";
+                  }}
+                />
+              </div>
+              {dragging && (
+                <div className="drop-hint" aria-hidden>
+                  Drop to load
+                </div>
+              )}
+            </div>
+
+            {fileError && <div className="file-error">{fileError}</div>}
+
+            <div className="sample-tabs">
+              {SAMPLES.map((s) => (
+                <button
+                  key={s.key}
+                  className="sample-tab"
+                  onClick={() => {
+                    setText(s.text);
+                    setTitle(s.title);
+                    setFileError(null);
+                  }}
+                >
+                  {s.chip}
+                </button>
+              ))}
+            </div>
+
+            <p className="tagline">
+              Gemma writes. Nemotron verifies. <b>Nothing leaves this machine.</b>
+            </p>
+          </section>
+        )}
+
+        {reading && docId && (
+          <Reader
+            docId={docId}
+            developing={phase === "generating"}
+            split={split}
+            initialLevel="expert"
+          />
+        )}
+      </main>
+
+      {reportOpen && docId && (
+        <TrustReport
           docId={docId}
-          developing={phase === "generating"}
-          initialLevel="standard"
+          title={title}
+          durationS={durationS}
+          onClose={() => setReportOpen(false)}
         />
       )}
     </div>
